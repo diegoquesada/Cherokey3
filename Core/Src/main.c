@@ -22,6 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,6 +45,8 @@
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim7;
 
+UART_HandleTypeDef huart2;
+
 /* Definitions for ultrasonicTask */
 osThreadId_t ultrasonicTaskHandle;
 const osThreadAttr_t ultrasonicTask_attributes = {
@@ -55,7 +59,7 @@ float ultraDistance = 0.0;
 uint8_t icFlag = 0;
 uint8_t ultraCaptureState = 0;
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0;
-float speedOfSound = 0.0343/2;
+float speedOfSound = 0.343/2; // mm / us
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,6 +67,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM7_Init(void);
+static void MX_USART2_UART_Init(void);
 void UpdateUltra(void *argument);
 
 /* USER CODE BEGIN PFP */
@@ -105,6 +110,7 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM2_Init();
   MX_TIM7_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -194,7 +200,8 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_TIM2;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_TIM2;
+  PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
   PeriphClkInit.Tim2ClockSelection = RCC_TIM2CLK_HCLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
@@ -222,7 +229,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 17;
+  htim2.Init.Prescaler = 71;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 4294967295;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -299,6 +306,41 @@ static void MX_TIM7_Init(void)
 }
 
 /**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 9600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -335,10 +377,10 @@ void usDelay(uint32_t uSec)
 {
 	TIM7->ARR = uSec * 2 - 1; // Configure update event to count up to desired uSec
 	TIM7->EGR = 1; // Clear timer and prescaler counters
-	TIM7->SR &= ~1; // Clear update register
+	TIM7->SR &= ~(0x0001); // Clear update interrupt register
 	TIM7->CR1 |= 1; // Enable the counter
-	while ((TIM7->SR & 0x1) != 1) ;
-	TIM7->SR &= ~ 1;
+	while ((TIM7->SR & 0x0001) != 1) ;
+	TIM7->SR &= ~(0x0001);
 }
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
@@ -362,7 +404,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_UpdateUltra */
-/**
+/**ultraRisingTime
   * @brief  Function implementing the ultrasonicTask thread.
   * @param  argument: Not used
   * @retval None
@@ -371,6 +413,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 void UpdateUltra(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  char buf[20];
   /* Infinite loop */
   for(;;)
   {
@@ -396,14 +439,18 @@ void UpdateUltra(void *argument)
 
 	  // Calculate distance.
 	  if (ultraFallingTime > ultraRisingTime) {
-		  ultraDistance = ((ultraFallingTime - ultraFallingTime) + 0.0f) * speedOfSound;
+		  ultraDistance = ((float)(ultraFallingTime - ultraRisingTime)) * speedOfSound;
 	  }
 	  else {
 		  ultraDistance = 0.0f;
 	  }
 
+	  snprintf(buf, 20, "Distance: %i\r\n", (int)ultraDistance);
+	  HAL_UART_Transmit_IT(&huart2, (uint8_t *)buf, strlen(buf)+1);
+
 	  osDelay(5000);
   }
+  osThreadTerminate(NULL);
   /* USER CODE END 5 */
 }
 

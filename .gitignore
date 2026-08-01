@@ -1,0 +1,7 @@
+*.cfg
+*.launch
+.settings/
+*.ld
+
+Debug/
+Release/
