@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2026 STMicroelectronics.
+  * Copyright (c) 2026 Diego Quesada.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -49,6 +49,8 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -61,6 +63,10 @@ void Error_Handler(void);
 #define ULTRA_TRIG_GPIO_Port GPIOA
 #define LD3_Pin GPIO_PIN_5
 #define LD3_GPIO_Port GPIOA
+#define MOTOR2_Pin GPIO_PIN_11
+#define MOTOR2_GPIO_Port GPIOA
+#define MOTOR1_Pin GPIO_PIN_12
+#define MOTOR1_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 
