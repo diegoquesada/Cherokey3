@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include "driving.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,6 +56,13 @@ const osThreadAttr_t ultrasonicTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityRealtime,
 };
+/* Definitions for DrivingTask */
+osThreadId_t DrivingTaskHandle;
+const osThreadAttr_t DrivingTask_attributes = {
+  .name = "DrivingTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
 float ultraDistance = 0.0;
 uint8_t icFlag = 0;
@@ -71,6 +79,7 @@ static void MX_TIM7_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
 void UpdateUltra(void *argument);
+void UpdateDriving(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -140,6 +149,9 @@ int main(void)
   /* Create the thread(s) */
   /* creation of ultrasonicTask */
   ultrasonicTaskHandle = osThreadNew(UpdateUltra, NULL, &ultrasonicTask_attributes);
+
+  /* creation of DrivingTask */
+  DrivingTaskHandle = osThreadNew(UpdateDriving, NULL, &DrivingTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -418,12 +430,22 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, ULTRA_TRIG_Pin|LD3_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, PIN_MOTOR1_Pin|PIN_MOTOR2_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : ULTRA_TRIG_Pin LD3_Pin */
   GPIO_InitStruct.Pin = ULTRA_TRIG_Pin|LD3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PIN_MOTOR1_Pin PIN_MOTOR2_Pin */
+  GPIO_InitStruct.Pin = PIN_MOTOR1_Pin|PIN_MOTOR2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -510,6 +532,29 @@ void UpdateUltra(void *argument)
   }
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_UpdateDriving */
+/**
+* @brief Function implementing the DrivingTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_UpdateDriving */
+void UpdateDriving(void *argument)
+{
+  /* USER CODE BEGIN UpdateDriving */
+	carInit();
+
+	/* Infinite loop */
+	for(;;)
+	{
+		carAdvance(0, 1999);
+		osDelay(1000);
+		carStop();
+		osDelay(1000);
+	}
+  /* USER CODE END UpdateDriving */
 }
 
 /**

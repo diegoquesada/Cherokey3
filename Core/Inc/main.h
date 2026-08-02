@@ -63,6 +63,10 @@ void Error_Handler(void);
 #define ULTRA_TRIG_GPIO_Port GPIOA
 #define LD3_Pin GPIO_PIN_5
 #define LD3_GPIO_Port GPIOA
+#define PIN_MOTOR1_Pin GPIO_PIN_1
+#define PIN_MOTOR1_GPIO_Port GPIOB
+#define PIN_MOTOR2_Pin GPIO_PIN_15
+#define PIN_MOTOR2_GPIO_Port GPIOB
 #define MOTOR2_Pin GPIO_PIN_11
 #define MOTOR2_GPIO_Port GPIOA
 #define MOTOR1_Pin GPIO_PIN_12
