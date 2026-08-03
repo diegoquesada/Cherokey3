@@ -53,18 +53,23 @@ UART_HandleTypeDef huart2;
 osThreadId_t ultrasonicTaskHandle;
 const osThreadAttr_t ultrasonicTask_attributes = {
   .name = "ultrasonicTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityRealtime,
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for DrivingTask */
 osThreadId_t DrivingTaskHandle;
 const osThreadAttr_t DrivingTask_attributes = {
   .name = "DrivingTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityAboveNormal,
+};
+/* Definitions for ultraQueue */
+osMessageQueueId_t ultraQueueHandle;
+const osMessageQueueAttr_t ultraQueue_attributes = {
+  .name = "ultraQueue"
 };
 /* USER CODE BEGIN PV */
-float ultraDistance = 0.0;
+uint32_t ultraDistance = 0;
 uint8_t icFlag = 0;
 uint8_t ultraCaptureState = 0;
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0;
@@ -141,6 +146,10 @@ int main(void)
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
+
+  /* Create the queue(s) */
+  /* creation of ultraQueue */
+  ultraQueueHandle = osMessageQueueNew (2, sizeof(uint32_t), &ultraQueue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -493,7 +502,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 void UpdateUltra(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  char buf[20];
+  //char buf[20];
   /* Infinite loop */
   for(;;)
   {
@@ -517,18 +526,20 @@ void UpdateUltra(void *argument)
 	  icFlag = 0;
 	  HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
 
-	  // Calculate distance.
+	  // Calculate distance in mm.
 	  if (ultraFallingTime > ultraRisingTime) {
-		  ultraDistance = ((float)(ultraFallingTime - ultraRisingTime)) * speedOfSound;
+		  ultraDistance = (ultraFallingTime - ultraRisingTime) * 100 / 583;
 	  }
 	  else {
-		  ultraDistance = 0.0f;
+		  ultraDistance = 0;
 	  }
 
-	  snprintf(buf, 20, "Distance: %i\r\n", (int)ultraDistance);
-	  HAL_UART_Transmit_IT(&huart2, (uint8_t *)buf, strlen(buf)+1);
+	  osMessageQueuePut(ultraQueueHandle, &ultraDistance, 0, 0);
 
-	  osDelay(5000);
+	  /*snprintf(buf, 20, "Distance: %i\r\n", (int)ultraDistance);
+	  HAL_UART_Transmit_IT(&huart2, (uint8_t *)buf, strlen(buf)+1);*/
+
+	  osDelay(1000);
   }
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
@@ -544,15 +555,23 @@ void UpdateUltra(void *argument)
 void UpdateDriving(void *argument)
 {
   /* USER CODE BEGIN UpdateDriving */
+	uint32_t distance;
 	carInit();
 
 	/* Infinite loop */
 	for(;;)
 	{
-		carAdvance(0, 1999);
-		osDelay(1000);
-		carStop();
-		osDelay(1000);
+		carAdvance(0, CAR_FULL_SPEED);
+
+		if (osMessageQueueGet(ultraQueueHandle, &distance, 0, osWaitForever) == osOK)
+		{
+			// If obstacle closer than 10cm, stop and wait.
+			if (distance < 100)
+			{
+				carStop();
+				osDelay(1000);
+			}
+		}
 	}
   /* USER CODE END UpdateDriving */
 }

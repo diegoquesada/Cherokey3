@@ -12,6 +12,8 @@
 
 #define CAR_RIGHT_MOTOR 0
 #define CAR_LEFT_MOTOR 1
+#define CAR_HALF_SPEED 499
+#define CAR_FULL_SPEED 1999
 
 void carInit();
 
