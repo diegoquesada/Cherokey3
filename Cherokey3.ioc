@@ -2,10 +2,10 @@
 CAD.formats=
 CAD.pinconfig=
 CAD.provider=
-FREERTOS.FootprintOK=true
-FREERTOS.IPParameters=Tasks01,configUSE_NEWLIB_REENTRANT,FootprintOK,Queues01
-FREERTOS.Queues01=ultraQueue,2,uint32_t,0,Dynamic,NULL,NULL
-FREERTOS.Tasks01=ultrasonicTask,24,256,UpdateUltra,Default,NULL,Dynamic,NULL,NULL;DrivingTask,32,128,UpdateDriving,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.FootprintOK=false
+FREERTOS.IPParameters=Tasks01,configUSE_NEWLIB_REENTRANT,FootprintOK,configTOTAL_HEAP_SIZE
+FREERTOS.Tasks01=ultrasonicTask,24,256,UpdateUltra,Default,NULL,Dynamic,NULL,NULL;motorTask,32,128,UpdateMotor,Default,NULL,Dynamic,NULL,NULL;serial,8,512,SerialTask,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.configTOTAL_HEAP_SIZE=4092
 FREERTOS.configUSE_NEWLIB_REENTRANT=1
 File.Version=6
 GPIO.groupedBy=Group By Peripherals

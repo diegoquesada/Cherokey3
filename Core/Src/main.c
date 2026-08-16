@@ -34,7 +34,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define DISTANCE_READY (1U)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -56,24 +56,27 @@ const osThreadAttr_t ultrasonicTask_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-/* Definitions for DrivingTask */
-osThreadId_t DrivingTaskHandle;
-const osThreadAttr_t DrivingTask_attributes = {
-  .name = "DrivingTask",
+/* Definitions for motorTask */
+osThreadId_t motorTaskHandle;
+const osThreadAttr_t motorTask_attributes = {
+  .name = "motorTask",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
-/* Definitions for ultraQueue */
-osMessageQueueId_t ultraQueueHandle;
-const osMessageQueueAttr_t ultraQueue_attributes = {
-  .name = "ultraQueue"
+/* Definitions for serial */
+osThreadId_t serialHandle;
+const osThreadAttr_t serial_attributes = {
+  .name = "serial",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* USER CODE BEGIN PV */
 uint32_t ultraDistance = 0;
 uint8_t icFlag = 0;
 uint8_t ultraCaptureState = 0;
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0;
-float speedOfSound = 0.343/2; // mm / us
+const float speedOfSound = 0.343/2; // mm / us
+volatile uint32_t lastDistanceMm;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -84,7 +87,8 @@ static void MX_TIM7_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
 void UpdateUltra(void *argument);
-void UpdateDriving(void *argument);
+void UpdateMotor(void *argument);
+void SerialTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -147,10 +151,6 @@ int main(void)
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
-  /* Create the queue(s) */
-  /* creation of ultraQueue */
-  ultraQueueHandle = osMessageQueueNew (2, sizeof(uint32_t), &ultraQueue_attributes);
-
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -159,8 +159,11 @@ int main(void)
   /* creation of ultrasonicTask */
   ultrasonicTaskHandle = osThreadNew(UpdateUltra, NULL, &ultrasonicTask_attributes);
 
-  /* creation of DrivingTask */
-  DrivingTaskHandle = osThreadNew(UpdateDriving, NULL, &DrivingTask_attributes);
+  /* creation of motorTask */
+  motorTaskHandle = osThreadNew(UpdateMotor, NULL, &motorTask_attributes);
+
+  /* creation of serial */
+  serialHandle = osThreadNew(SerialTask, NULL, &serial_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -518,6 +521,7 @@ void UpdateUltra(void *argument)
 	  // Start IC timer.
 	  HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
 
+	  // Wait until we have captured the pulse bouncing back, or timeout.
 	  uint32_t startTick = HAL_GetTick();
 	  do {
 		  if (icFlag) break;
@@ -534,46 +538,78 @@ void UpdateUltra(void *argument)
 		  ultraDistance = 0;
 	  }
 
-	  osMessageQueuePut(ultraQueueHandle, &ultraDistance, 0, 0);
+	  //osMessageQueuePut(ultraQueueHandle, &ultraDistance, 0, 0);
+	  lastDistanceMm = ultraDistance;
+	  osThreadFlagsSet(motorTaskHandle, DISTANCE_READY);
 
 	  /*snprintf(buf, 20, "Distance: %i\r\n", (int)ultraDistance);
 	  HAL_UART_Transmit_IT(&huart2, (uint8_t *)buf, strlen(buf)+1);*/
 
-	  osDelay(1000);
+	  osDelay(500);
   }
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
 }
 
-/* USER CODE BEGIN Header_UpdateDriving */
+/* USER CODE BEGIN Header_UpdateMotor */
 /**
-* @brief Function implementing the DrivingTask thread.
+* @brief Function implementing the motorTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_UpdateDriving */
-void UpdateDriving(void *argument)
+/* USER CODE END Header_UpdateMotor */
+void UpdateMotor(void *argument)
 {
-  /* USER CODE BEGIN UpdateDriving */
+  /* USER CODE BEGIN UpdateMotor */
 	uint32_t distance;
 	carInit();
+  /* Infinite loop */
+  for(;;)
+  {
+    uint32_t flags = osThreadFlagsWait(DISTANCE_READY, osFlagsWaitAny, osWaitForever);
+    if (flags & DISTANCE_READY)
+    {
+    	distance = lastDistanceMm;
+    	if (distance >= 500)
+    	{
+    		carAdvance(CAR_FORWARD, CAR_FULL_SPEED);
+    	}
+    	else if (distance >= 200)
+    	{
+			rampSingle(CAR_RIGHT_MOTOR, 2000);
+			rampSingle(CAR_LEFT_MOTOR, 750);
+    	}
+    	else
+    	{
+    		carStop();
+    	}
+    }
+  }
+  /* USER CODE END UpdateMotor */
+}
 
-	/* Infinite loop */
-	for(;;)
-	{
-		carAdvance(0, CAR_FULL_SPEED);
+/* USER CODE BEGIN Header_SerialTask */
+/**
+* @brief Function implementing the serial thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_SerialTask */
+void SerialTask(void *argument)
+{
+  /* USER CODE BEGIN SerialTask */
+	uint32_t distance;
+	char buffer[64];
+  /* Infinite loop */
+  for(;;)
+  {
+	  osDelay(1000);
 
-		if (osMessageQueueGet(ultraQueueHandle, &distance, 0, osWaitForever) == osOK)
-		{
-			// If obstacle closer than 10cm, stop and wait.
-			if (distance < 100)
-			{
-				carStop();
-				osDelay(1000);
-			}
-		}
-	}
-  /* USER CODE END UpdateDriving */
+	  distance = lastDistanceMm;
+	  int len = snprintf(buffer, sizeof(buffer), "D: %lu mm\r\n", distance);
+	  HAL_UART_Transmit(&huart2, (uint8_t *)buffer, len, 100);
+  }
+  /* USER CODE END SerialTask */
 }
 
 /**

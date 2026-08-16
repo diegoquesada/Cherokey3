@@ -7,6 +7,7 @@
  */
 
 #include "stm32f3xx_hal.h"
+#include "cmsis_os.h"
 #include "main.h"
 #include "driving.h"
 
@@ -70,7 +71,7 @@ void rampUpSingle(uint8_t motorIndex, uint32_t targetDuty)
 			break;
 		}
 
-		HAL_Delay(PWM_RAMP_DELAY);
+		osDelay(PWM_RAMP_DELAY);
 	}
 }
 
@@ -96,7 +97,7 @@ void rampUpSync(uint32_t targetDuty)
 		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pwmDuty[0]);
 		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, pwmDuty[1]);
 
-		HAL_Delay(PWM_RAMP_DELAY);
+		osDelay(PWM_RAMP_DELAY);
 	}
 }
 
@@ -134,7 +135,7 @@ void rampDownSingle(uint8_t motorIndex, uint32_t targetDuty)
 			break;
 		}
 
-		HAL_Delay(PWM_RAMP_DELAY);
+		osDelay(PWM_RAMP_DELAY);
 	}
 }
 
@@ -160,7 +161,7 @@ void rampDownSync(uint32_t targetDuty)
 		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pwmDuty[0]);
 		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, pwmDuty[1]);
 
-		HAL_Delay(PWM_RAMP_DELAY);
+		osDelay(PWM_RAMP_DELAY);
 	}
 }
 
@@ -206,6 +207,12 @@ void rampSingle(uint8_t motorIndex, uint32_t targetDuty)
 	}
 }
 
+/**
+ * Ramps up duty cycle for both motors at the same time.
+ * If changing direction, each motor will be ramped down to zero first.
+ * Both motors will then be ramped up together to the target speed,
+ * in steps of 100 units at PWM_RAMP_DELAY (default 25 ms) intervals.
+ */
 void carAdvance(uint8_t direction, uint32_t speed)
 {
 	if (direction > 1) // 0, 1 allowed
