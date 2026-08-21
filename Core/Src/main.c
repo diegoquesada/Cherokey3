@@ -34,7 +34,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DISTANCE_READY (1U)
+#define DISTANCE_READY (1U << 0)
+#define BUTTON_PRESS_FLAG (1U << 1)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -435,6 +436,7 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
@@ -444,6 +446,12 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, PIN_MOTOR1_Pin|PIN_MOTOR2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : B1_Pin */
+  GPIO_InitStruct.Pin = B1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : ULTRA_TRIG_Pin LD3_Pin */
   GPIO_InitStruct.Pin = ULTRA_TRIG_Pin|LD3_Pin;
@@ -490,6 +498,17 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 			ultraCaptureState = 0;
 			icFlag = 1;
 		}
+	}
+}
+
+/**
+ * GPIO trigger callback for the blue button.
+ */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if (GPIO_Pin == B1_Pin)
+	{
+		osThreadFlagsSet(motorTaskHandle, BUTTON_PRESS_FLAG);
 	}
 }
 
@@ -570,18 +589,25 @@ void UpdateMotor(void *argument)
     if (flags & DISTANCE_READY)
     {
     	distance = lastDistanceMm;
-    	if (distance >= 500)
+    	if (distance > 1000)
     	{
     		carAdvance(CAR_FORWARD, CAR_FULL_SPEED);
     	}
-    	else if (distance >= 200)
+    	else if (distance > 500)
     	{
-			rampSingle(CAR_RIGHT_MOTOR, 2000);
-			rampSingle(CAR_LEFT_MOTOR, 750);
+    		carAdvance(CAR_FORWARD, (CAR_HALF_SPEED * distance) / 500); // proportional to distance
+    	}
+    	else if (distance > 200)
+    	{
+    		// Turn towards the right
+			rampSingle(CAR_LEFT_MOTOR, 2000);
+			rampSingle(CAR_RIGHT_MOTOR, 1000);
     	}
     	else
     	{
+    		// Stop and reverse
     		carStop();
+    		carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
     	}
     }
   }
