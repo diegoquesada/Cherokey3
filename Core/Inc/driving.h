@@ -12,10 +12,10 @@
 
 #define CAR_RIGHT_MOTOR 0
 #define CAR_LEFT_MOTOR 1
-#define CAR_HALF_SPEED 999
-#define CAR_FULL_SPEED 1999
+#define CAR_HALF_SPEED 1000
+#define CAR_FULL_SPEED 2000
 #define CAR_FORWARD 0
-#define CAR_BACKWARD 1
+#define CAR_REVERSE 1
 
 void carInit();
 
@@ -28,6 +28,8 @@ void carInit();
  * @param Timer channel to adjust
  */
 void rampSingle(uint8_t motorIndex, uint32_t targetDuty);
+
+void rampBoth(uint32_t targetDuty);
 
 /**
  * Move car forwards or backwards.

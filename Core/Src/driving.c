@@ -47,11 +47,9 @@ void carInit()
  */
 void rampUpSingle(uint8_t motorIndex, uint32_t targetDuty)
 {
-	if (targetDuty > PWM_MAX_SPEED) // 2000 is valid as a maximum value
+	if (targetDuty > PWM_MAX_SPEED)
 		return;
 
-	TIM_OC_InitTypeDef sConfigOC = {0};
-	sConfigOC.OCMode = TIM_OCMODE_PWM1;
 	while (pwmDuty[motorIndex] < targetDuty)
 	{
 		if (targetDuty - pwmDuty[motorIndex] >= PWM_RAMP_STEP)
@@ -63,39 +61,7 @@ void rampUpSingle(uint8_t motorIndex, uint32_t targetDuty)
 			pwmDuty[motorIndex] = targetDuty;
 		}
 
-		sConfigOC.Pulse = pwmDuty[motorIndex];
-		if (HAL_TIM_PWM_ConfigChannel(
-				&htim4, &sConfigOC, (motorIndex == 0) ? TIM_CHANNEL_1 : TIM_CHANNEL_2) != HAL_OK)
-		{
-			Error_Handler();
-			break;
-		}
-
-		osDelay(PWM_RAMP_DELAY);
-	}
-}
-
-void rampUpSync(uint32_t targetDuty)
-{
-	if (targetDuty > PWM_MAX_SPEED) // 2000 is valid as a maximum value
-		return;
-	if (pwmDuty[0] != pwmDuty[1])
-		return;
-
-	while (pwmDuty[0] < targetDuty)
-	{
-		if (targetDuty - pwmDuty[0] >= PWM_RAMP_STEP)
-		{
-			pwmDuty[0] += PWM_RAMP_STEP;
-			pwmDuty[1] += PWM_RAMP_STEP;
-		}
-		else
-		{
-			pwmDuty[0] = pwmDuty[1] = targetDuty;
-		}
-
-		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pwmDuty[0]);
-		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, pwmDuty[1]);
+		__HAL_TIM_SET_COMPARE(&htim4, (motorIndex == 0) ? TIM_CHANNEL_1 : TIM_CHANNEL_2, pwmDuty[motorIndex]);
 
 		osDelay(PWM_RAMP_DELAY);
 	}
@@ -103,6 +69,8 @@ void rampUpSync(uint32_t targetDuty)
 
 /**
  * Ramps down duty cycle gradually from the current setting to a target.
+ * Ramp is performed in 100 unit steps at 25 ms intervals. Therefore a full
+ * ramp down from CAR_FULL_SPEED (1999) takes ~500ms.
  * This function does not adjust direction pins, it only sets duty cycle.
  *
  * @param Motor to adjust, 0:M1 (right), 1:M2 (left)
@@ -111,11 +79,9 @@ void rampUpSync(uint32_t targetDuty)
  */
 void rampDownSingle(uint8_t motorIndex, uint32_t targetDuty)
 {
-	if (targetDuty > PWM_MAX_SPEED) // 2000 is valid as a maximum value
+	if (targetDuty > PWM_MAX_SPEED)
 		return;
 
-	TIM_OC_InitTypeDef sConfigOC = {0};
-	sConfigOC.OCMode = TIM_OCMODE_PWM1;
 	while (pwmDuty[motorIndex] > targetDuty)
 	{
 		if (pwmDuty[motorIndex] - targetDuty >= PWM_RAMP_STEP)
@@ -127,66 +93,60 @@ void rampDownSingle(uint8_t motorIndex, uint32_t targetDuty)
 			pwmDuty[motorIndex] = targetDuty;
 		}
 
-		sConfigOC.Pulse = pwmDuty[motorIndex];
-		if (HAL_TIM_PWM_ConfigChannel(
-				&htim4, &sConfigOC, (motorIndex == 0) ? TIM_CHANNEL_1 : TIM_CHANNEL_2) != HAL_OK)
-		{
-			Error_Handler();
-			break;
-		}
+		__HAL_TIM_SET_COMPARE(&htim4, (motorIndex == 0) ? TIM_CHANNEL_1 : TIM_CHANNEL_2, pwmDuty[motorIndex]);
 
 		osDelay(PWM_RAMP_DELAY);
 	}
 }
 
-void rampDownSync(uint32_t targetDuty)
+/**
+ * Ramps duty cycle up or down for both motors at the same time.
+ * If both motors are at the same duty cycle initially, then they are ramped together.
+ * In this case a full ramp up/down from 0 to CAR_FULL_SPEED will take 500 ms.
+ * Otherwise, M1 is ramped up first followed by M2. This is arguably not ideal and will
+ * be fixed later.
+ */
+void rampTwo(uint32_t targetDuty)
 {
-	if (targetDuty > PWM_MAX_SPEED) // 2000 is valid as a maximum value
-		return;
-	if (pwmDuty[0] != pwmDuty[1]) // Can ony do syncd ramp if both motors are same speed
+	rampBoth(targetDuty);
+}
+
+/**
+ * Ramps duty cycle up or down for both motors concurrently.
+ * This function handles cases where motors start at different speeds,
+ * ramping them both towards the target duty cycle simultaneously.
+ */
+void rampBoth(uint32_t targetDuty)
+{
+	if (targetDuty > PWM_MAX_SPEED)
 		return;
 
-	while (pwmDuty[0] > targetDuty)
+	while (pwmDuty[0] != targetDuty || pwmDuty[1] != targetDuty)
 	{
-		if (pwmDuty[0] - targetDuty >= PWM_RAMP_STEP)
+		// Motor 0 (Right)
+		if (pwmDuty[0] < targetDuty)
 		{
-			pwmDuty[0] -= PWM_RAMP_STEP;
-			pwmDuty[1] -= PWM_RAMP_STEP;
+			pwmDuty[0] += (targetDuty - pwmDuty[0] >= PWM_RAMP_STEP) ? PWM_RAMP_STEP : (targetDuty - pwmDuty[0]);
 		}
-		else
+		else if (pwmDuty[0] > targetDuty)
 		{
-			pwmDuty[0] = pwmDuty[1] = targetDuty;
+			pwmDuty[0] -= (pwmDuty[0] - targetDuty >= PWM_RAMP_STEP) ? PWM_RAMP_STEP : (pwmDuty[0] - targetDuty);
+		}
+
+		// Motor 1 (Left)
+		if (pwmDuty[1] < targetDuty)
+		{
+			pwmDuty[1] += (targetDuty - pwmDuty[1] >= PWM_RAMP_STEP) ? PWM_RAMP_STEP : (targetDuty - pwmDuty[1]);
+		}
+		else if (pwmDuty[1] > targetDuty)
+		{
+			pwmDuty[1] -= (pwmDuty[1] - targetDuty >= PWM_RAMP_STEP) ? PWM_RAMP_STEP : (pwmDuty[1] - targetDuty);
 		}
 
 		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pwmDuty[0]);
 		__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, pwmDuty[1]);
 
 		osDelay(PWM_RAMP_DELAY);
-	}
-}
-
-void rampTwo(uint32_t targetDuty)
-{
-	if (pwmDuty[0] == pwmDuty[1])
-	{
-		if (pwmDuty[0] < targetDuty)
-			rampUpSync(targetDuty);
-		else
-			rampDownSync(targetDuty);
-	}
-	else
-	{
-		// Ramp up/down left motor
-		if (pwmDuty[0] < targetDuty)
-			rampUpSingle(0, targetDuty);
-		else
-			rampDownSingle(0, targetDuty);
-
-		// Ramp up/down right motor
-		if (pwmDuty[1] < targetDuty)
-			rampUpSingle(1, targetDuty);
-		else
-			rampDownSingle(1, targetDuty);
 	}
 }
 
@@ -208,10 +168,13 @@ void rampSingle(uint8_t motorIndex, uint32_t targetDuty)
 }
 
 /**
- * Ramps up duty cycle for both motors at the same time.
- * If changing direction, each motor will be ramped down to zero first.
- * Both motors will then be ramped up together to the target speed,
- * in steps of 100 units at PWM_RAMP_DELAY (default 25 ms) intervals.
+ * Drivers car forward by ramping duty cycle for both motors at the same time.
+ * If changing direction, both motors will be ramped down to zero first. Both motors will
+ * then be ramped up together to the target speed, in steps of 100 units at PWM_RAMP_DELAY
+ * (default 25 ms) intervals.
+ * If ramping down is required, the function takes at most:
+ * (max(orig_duty_left, orig_duty_right) / 100) * 25 + (new_duty / 100) * 25 milliseconds
+ * to complete. This is max 1 second for orig_duty = 2000 and new_duty = 2000.
  */
 void carAdvance(uint8_t direction, uint32_t speed)
 {
@@ -219,17 +182,17 @@ void carAdvance(uint8_t direction, uint32_t speed)
 		return;
 	if (speed > PWM_MAX_SPEED) // 2000 is valid as a maximum value
 		return;
-
-	// Changing direction - ramp down M1
-	if (direction != pwmDirection[0] && pwmDuty[0] != 0)
+	if (pwmDirection[0] == direction && pwmDirection[0] == pwmDirection[1] && // Already at target
+		pwmDuty[0] == speed && pwmDuty[0] == pwmDuty[1])
 	{
-		rampDownSingle(0, 0);
+		return;
 	}
 
-	// Changing direction - ramp down M2
-	if (direction != pwmDirection[1] && pwmDuty[1] != 0)
+	// Changing direction - ramp both down to 0 concurrently
+	if ((direction != pwmDirection[0] && pwmDuty[0] != 0) ||
+		(direction != pwmDirection[1] && pwmDuty[1] != 0))
 	{
-		rampDownSingle(1, 0);
+		rampBoth(0);
 	}
 
 	// Set direction pins
@@ -237,7 +200,7 @@ void carAdvance(uint8_t direction, uint32_t speed)
 	HAL_GPIO_WritePin(PIN_MOTOR2_GPIO_Port, PIN_MOTOR2_Pin, (direction == 0) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 	pwmDirection[0] = pwmDirection[1] = direction;
 
-	rampTwo(speed);
+	rampBoth(speed);
 }
 
 void carTurn(uint8_t direction, uint32_t speed)
@@ -278,15 +241,7 @@ void carTurn(uint8_t direction, uint32_t speed)
 
 void carStop()
 {
-	if (pwmDuty[0] == pwmDuty[1])
-	{
-		rampDownSync(0);
-	}
-	else
-	{
-		rampDownSingle(0, 0);
-		rampDownSingle(1, 0);
-	}
+	rampBoth(0);
 
 	// No changes to the pins.
 }
