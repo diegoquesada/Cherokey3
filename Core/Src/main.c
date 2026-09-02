@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "driving.h"
+#include "comms.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -78,8 +79,8 @@ const osThreadAttr_t serialTask_attributes = {
 uint8_t icFlag = 0; // Set to 1 when we capture the ultrasonic signal's falling edge
 uint8_t ultraCaptureState = 0; // Is 0 when ready to capture falling edge, 1 for falling edge
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
-//const float speedOfSound = 0.343/2; // mm / us
 volatile uint32_t lastDistanceMm; // Last measured distance to obstacle
+int32_t carSpeed[2] = { 0, 0 };
 osSemaphoreId_t uart4RxSemHandle;
 uint8_t uart4RxBuffer[64];
 /* USER CODE END PV */
@@ -665,22 +666,27 @@ void UpdateMotor(void *argument)
     	distance = (lastDistanceMm / 20) * 20; // Quantize at 2cm
     	if (distance > 1000)
     	{
-    		carAdvance(CAR_FORWARD, CAR_FULL_SPEED);
+    		carSpeed[0] = carSpeed[1] = CAR_FULL_SPEED;
+    		carAdvance(CAR_FORWARD, carSpeed[0]);
     	}
     	else if (distance > 500)
     	{
-    		carAdvance(CAR_FORWARD, (CAR_HALF_SPEED * distance) / 500); // proportional to distance
+    		carSpeed[0] = carSpeed[1] = (CAR_HALF_SPEED * distance) / 500; // proportional to distance
+    		carAdvance(CAR_FORWARD, carSpeed[0]);
     	}
     	else if (distance > 200)
     	{
     		// Turn towards the right
-			rampSingle(CAR_LEFT_MOTOR, 2000);
-			rampSingle(CAR_RIGHT_MOTOR, 1000);
+    		carSpeed[0] = 2000;
+    		carSpeed[1] = 1000;
+			rampSingle(CAR_LEFT_MOTOR, carSpeed[0]);
+			rampSingle(CAR_RIGHT_MOTOR, carSpeed[1]);
     	}
     	else
     	{
     		// Stop and reverse
     		carStop();
+    		carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
     		carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
     	}
     }
@@ -702,34 +708,16 @@ void UpdateSerial(void *argument)
 	int len = snprintf(tx_buffer, sizeof(tx_buffer), "%s\r\n", CHEROKEY_VERSION);
     HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
 
+    espInit(&huart4, &huart2);
+
 	/* Infinite loop */
 	for(;;)
 	{
 		osDelay(1000);
 
 		// Send distance via huart2
-		len = snprintf(tx_buffer, sizeof(tx_buffer), "Distance: %lu mm\r\n", lastDistanceMm);
+		len = snprintf(tx_buffer, sizeof(tx_buffer), "D: %lu mm, S: (%li, %li)\r\n", lastDistanceMm, carSpeed[0], carSpeed[1]);
 		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
-
-		// Send AT command to the ESP8266
-		const uint8_t at_cmd[] = "AT+GMR\r\n";
-		HAL_UART_Transmit(&huart4, at_cmd, 8, 100);
-
-		// Start asynchronous DMA receive.
-		HAL_UART_Receive_DMA(&huart4, uart4RxBuffer, 64);
-		if (osSemaphoreAcquire(uart4RxSemHandle, 500) == osOK)
-		{
-			HAL_UART_Transmit(&huart2, uart4RxBuffer, 64, 100);
-		}
-		else
-		{
-			// Timeout occurred. Calculate how many bytes actually arrived.
-			uint16_t received_len = 64 - huart4.RxXferCount;
-			if (received_len > 0)
-			{
-				HAL_UART_Transmit(&huart2, uart4RxBuffer, received_len, 100);
-			}
-		}
 	}
   /* USER CODE END UpdateSerial */
 }
