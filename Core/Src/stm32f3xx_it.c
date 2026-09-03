@@ -22,6 +22,7 @@
 #include "stm32f3xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "cmsis_os.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,7 +42,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+extern osSemaphoreId_t uart4RxSemHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -197,6 +198,12 @@ void USART2_IRQHandler(void)
 void UART4_IRQHandler(void)
 {
   /* USER CODE BEGIN UART4_IRQn 0 */
+	if (__HAL_UART_GET_FLAG(&huart4, UART_FLAG_IDLE))
+	{
+		__HAL_UART_CLEAR_IDLEFLAG(&huart4);
+		// Signal SerialTask that data is ready
+		osSemaphoreRelease(uart4RxSemHandle);
+	}
 
   /* USER CODE END UART4_IRQn 0 */
   HAL_UART_IRQHandler(&huart4);

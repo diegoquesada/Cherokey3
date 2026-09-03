@@ -280,8 +280,8 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     hdma_uart4_rx.Init.MemInc = DMA_MINC_ENABLE;
     hdma_uart4_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
     hdma_uart4_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
-    hdma_uart4_rx.Init.Mode = DMA_NORMAL;
-    hdma_uart4_rx.Init.Priority = DMA_PRIORITY_LOW;
+    hdma_uart4_rx.Init.Mode = DMA_CIRCULAR;
+    hdma_uart4_rx.Init.Priority = DMA_PRIORITY_HIGH;
     if (HAL_DMA_Init(&hdma_uart4_rx) != HAL_OK)
     {
       Error_Handler();

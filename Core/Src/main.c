@@ -37,7 +37,7 @@
 /* USER CODE BEGIN PD */
 #define DISTANCE_READY (1U << 0)
 #define BUTTON_PRESS_FLAG (1U << 1)
-#define CHEROKEY_VERSION "Cherokey3 v0.1"
+#define CHEROKEY_VERSION "Cherokey3 v0.2"
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -81,7 +81,6 @@ uint8_t ultraCaptureState = 0; // Is 0 when ready to capture falling edge, 1 for
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
 volatile uint32_t lastDistanceMm; // Last measured distance to obstacle
 int32_t carSpeed[2] = { 0, 0 };
-osSemaphoreId_t uart4RxSemHandle;
 uint8_t uart4RxBuffer[64];
 /* USER CODE END PV */
 
@@ -154,7 +153,7 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  uart4RxSemHandle = osSemaphoreNew(1, 0, NULL);
+  espInit();
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -503,7 +502,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, ULTRA_TRIG_Pin|LD3_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, ULTRA_TRIG_Pin|LD3_Pin|ESP_ENABLE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, PIN_MOTOR1_Pin|PIN_MOTOR2_Pin, GPIO_PIN_RESET);
@@ -527,6 +526,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ESP_ENABLE_Pin */
+  GPIO_InitStruct.Pin = ESP_ENABLE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(ESP_ENABLE_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -570,15 +576,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	if (GPIO_Pin == B1_Pin)
 	{
 		osThreadFlagsSet(motorTaskHandle, BUTTON_PRESS_FLAG);
-	}
-}
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-	if (huart->Instance == UART4)
-	{
-		// Signal SerialTask that data is ready
-		osSemaphoreRelease(uart4RxSemHandle);
 	}
 }
 
@@ -704,11 +701,11 @@ void UpdateMotor(void *argument)
 void UpdateSerial(void *argument)
 {
   /* USER CODE BEGIN UpdateSerial */
+    espStart(&huart4, &huart2);
+
 	char tx_buffer[64];
 	int len = snprintf(tx_buffer, sizeof(tx_buffer), "%s\r\n", CHEROKEY_VERSION);
     HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
-
-    espInit(&huart4, &huart2);
 
 	/* Infinite loop */
 	for(;;)
