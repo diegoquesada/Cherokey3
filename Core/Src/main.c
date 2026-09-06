@@ -579,6 +579,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	}
 }
 
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if (huart == &huart4)
+	{
+		espRxCpltCallback(huart);
+	}
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_UpdateUltra */

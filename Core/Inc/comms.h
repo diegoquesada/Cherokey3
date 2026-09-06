@@ -21,5 +21,6 @@ typedef enum {
 void espInit();
 void espStart(UART_HandleTypeDef *huart, UART_HandleTypeDef *huartEcho);
 esp_status_t espSendSync(UART_HandleTypeDef *huart, UART_HandleTypeDef *huartEcho, const uint8_t *cmd);
+void espRxCpltCallback(UART_HandleTypeDef *huart);
 
 #endif /* INC_COMMS_H_ */

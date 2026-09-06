@@ -13,9 +13,10 @@
 #include "secrets.h"
 
 osSemaphoreId_t uart4RxSemHandle;
-#define ESP_RX_BUFFERSIZE 64
-uint8_t uartTxBuffer[64], uartRxBuffer[ESP_RX_BUFFERSIZE];
+#define ESP_RX_BUFFERSIZE 256
+static uint8_t uartTxBuffer[64], uartRxBuffer[ESP_RX_BUFFERSIZE];
 uint16_t espDmaLastPos = 0;
+static volatile uint32_t espDmaWrapCount = 0;
 
 esp_status_t espWaitReady(UART_HandleTypeDef *huart, UART_HandleTypeDef *huartEcho);
 
@@ -59,21 +60,42 @@ esp_status_t espWaitReady(UART_HandleTypeDef *huart, UART_HandleTypeDef *huartEc
 	// Raise enable pin to turn on ESP module.
 	HAL_GPIO_WritePin(ESP_ENABLE_GPIO_Port, ESP_ENABLE_Pin, GPIO_PIN_SET);
 
-	for (;;)
+	uint8_t readyFound = 0;
+	for (; !readyFound; )
 	{
 		if (osSemaphoreAcquire(uart4RxSemHandle, 100) == osOK)
 		{
-			// Match the string "ready" in the module's output.
+			const char readyString[] = "ready";
+			uint16_t readyMatch = 0;
 			uint16_t pos = ESP_RX_BUFFERSIZE - __HAL_DMA_GET_COUNTER(huart->hdmarx);
-			if (strnstr((const char *)uartRxBuffer + espDmaLastPos, "ready\r\n", pos - espDmaLastPos) != 0)
+			for (uint16_t i = espDmaLastPos; i < pos && !readyMatch; i++)
 			{
-				HAL_UART_Transmit(huartEcho, uartRxBuffer + espDmaLastPos, pos - espDmaLastPos, 100);
-
-				espDmaLastPos = pos;
-				return ESP_SUCCESS;
+				if (uartRxBuffer[i] == readyString[readyMatch])
+				{
+					readyMatch++;
+					if (readyString[readyMatch] == '\0')
+					{
+						readyMatch = 0;
+						readyFound = 1;
+					}
+				}
+				else if (readyMatch != 0)
+				{
+					// Restart match parsing from the beginning of the string.
+					readyMatch = 0;
+					if (uartRxBuffer[i] == readyString[readyMatch])
+					{
+						readyMatch = 1;
+					}
+				}
 			}
+
+			//HAL_UART_Transmit(huartEcho, uartRxBuffer + espDmaLastPos, pos - espDmaLastPos, 100);
+			espDmaLastPos = pos;
 		}
 	}
+
+	return readyFound ? ESP_SUCCESS : ESP_ERROR;
 }
 
 #define min(x, y) (((x) < (y)) ? (x) : (y))
@@ -82,10 +104,6 @@ esp_status_t espSendSync(UART_HandleTypeDef *huart, UART_HandleTypeDef *huartEch
 {
 	// Send AT command to the ESP8266
 	HAL_UART_Transmit(huart, cmd, strlen((const char *)cmd), 100);
-
-	// Start asynchronous DMA receive.
-	HAL_UART_Receive_DMA(huart, uartRxBuffer, sizeof(uartRxBuffer));
-	__HAL_UART_ENABLE_IT(huart, UART_IT_IDLE);
 
 	char responseBuffer[64];
 	for (;;)
@@ -123,4 +141,9 @@ esp_status_t espSendSync(UART_HandleTypeDef *huart, UART_HandleTypeDef *huartEch
 	}
 
 	return ESP_UNKNOWN;
+}
+
+void espRxCpltCallback(UART_HandleTypeDef *huart)
+{
+	espDmaWrapCount++;
 }

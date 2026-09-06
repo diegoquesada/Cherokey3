@@ -69,6 +69,8 @@ void Error_Handler(void);
 #define PIN_MOTOR1_GPIO_Port GPIOB
 #define PIN_MOTOR2_Pin GPIO_PIN_15
 #define PIN_MOTOR2_GPIO_Port GPIOB
+#define ESP_ENABLE_Pin GPIO_PIN_10
+#define ESP_ENABLE_GPIO_Port GPIOA
 #define MOTOR2_Pin GPIO_PIN_11
 #define MOTOR2_GPIO_Port GPIOA
 #define MOTOR1_Pin GPIO_PIN_12
