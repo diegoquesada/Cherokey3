@@ -143,6 +143,7 @@ int main(void)
   MX_UART4_Init();
   /* USER CODE BEGIN 2 */
 
+  espInit(&huart4, &huart2);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -153,7 +154,6 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  espInit();
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -448,7 +448,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 9600;
+  huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -478,7 +478,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA2_Channel3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Channel3_IRQn, 15, 0);
+  HAL_NVIC_SetPriority(DMA2_Channel3_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA2_Channel3_IRQn);
 
 }
@@ -672,27 +672,27 @@ void UpdateMotor(void *argument)
     	if (distance > 1000)
     	{
     		carSpeed[0] = carSpeed[1] = CAR_FULL_SPEED;
-    		carAdvance(CAR_FORWARD, carSpeed[0]);
+    		//carAdvance(CAR_FORWARD, carSpeed[0]);
     	}
     	else if (distance > 500)
     	{
     		carSpeed[0] = carSpeed[1] = (CAR_HALF_SPEED * distance) / 500; // proportional to distance
-    		carAdvance(CAR_FORWARD, carSpeed[0]);
+    		//carAdvance(CAR_FORWARD, carSpeed[0]);
     	}
     	else if (distance > 200)
     	{
     		// Turn towards the right
     		carSpeed[0] = 2000;
     		carSpeed[1] = 1000;
-			rampSingle(CAR_LEFT_MOTOR, carSpeed[0]);
-			rampSingle(CAR_RIGHT_MOTOR, carSpeed[1]);
+			//rampSingle(CAR_LEFT_MOTOR, carSpeed[0]);
+			//rampSingle(CAR_RIGHT_MOTOR, carSpeed[1]);
     	}
     	else
     	{
     		// Stop and reverse
     		carStop();
     		carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
-    		carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
+    		//carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
     	}
     }
   }
@@ -709,11 +709,11 @@ void UpdateMotor(void *argument)
 void UpdateSerial(void *argument)
 {
   /* USER CODE BEGIN UpdateSerial */
-    espStart(&huart4, &huart2);
-
 	char tx_buffer[64];
 	int len = snprintf(tx_buffer, sizeof(tx_buffer), "%s\r\n", CHEROKEY_VERSION);
     HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
+
+    espStart();
 
 	/* Infinite loop */
 	for(;;)

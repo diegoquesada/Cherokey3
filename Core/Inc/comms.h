@@ -18,9 +18,18 @@ typedef enum {
     ESP_UNKNOWN
 } esp_status_t;
 
-void espInit();
-void espStart(UART_HandleTypeDef *huart, UART_HandleTypeDef *huartEcho);
-esp_status_t espSendSync(UART_HandleTypeDef *huart, UART_HandleTypeDef *huartEcho, const uint8_t *cmd);
+/**
+ * Initialize state of the ESP8266 library.
+ */
+void espInit(UART_HandleTypeDef *huartESP, UART_HandleTypeDef *huartEcho);
+
+/**
+ * Enable and initialize ESP8266.
+ */
+esp_status_t espStart();
+
+esp_status_t espSendSync(const uint8_t *cmd);
 void espRxCpltCallback(UART_HandleTypeDef *huart);
+void espRecoverUart();
 
 #endif /* INC_COMMS_H_ */

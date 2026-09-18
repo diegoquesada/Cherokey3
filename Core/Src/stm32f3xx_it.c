@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "cmsis_os.h"
+#include "comms.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,7 +63,7 @@ extern UART_HandleTypeDef huart4;
 extern UART_HandleTypeDef huart2;
 extern TIM_HandleTypeDef htim6;
 
-/* USER CODE BEGIN EV */
+/* USER CODE BEGIN ECore/Src/stm32f3xx_it.cV */
 
 /* USER CODE END EV */
 
@@ -198,6 +199,7 @@ void USART2_IRQHandler(void)
 void UART4_IRQHandler(void)
 {
   /* USER CODE BEGIN UART4_IRQn 0 */
+	// Handle idle flag by notifying SerialTask that we may have data.
 	if (__HAL_UART_GET_FLAG(&huart4, UART_FLAG_IDLE))
 	{
 		__HAL_UART_CLEAR_IDLEFLAG(&huart4);
@@ -205,8 +207,20 @@ void UART4_IRQHandler(void)
 		osSemaphoreRelease(uart4RxSemHandle);
 	}
 
+	// Handle errors by resetting DMA transmission.
+	if (__HAL_UART_GET_FLAG(&huart4, UART_FLAG_ORE) ||
+		__HAL_UART_GET_FLAG(&huart4, UART_FLAG_FE) ||
+		__HAL_UART_GET_FLAG(&huart4, UART_FLAG_NE))
+	{
+		espRecoverUart();
+	}
+
+	/*if (__HAL_UART_GET_FLAG(&huart4, UART_FLAG_ORE) || __HAL_UART_GET_FLAG(&huart4, UART_FLAG_FE))
+	{
+		espRecoverUart();
+	}*/
   /* USER CODE END UART4_IRQn 0 */
-  HAL_UART_IRQHandler(&huart4);
+	HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */
 
   /* USER CODE END UART4_IRQn 1 */
