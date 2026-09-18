@@ -215,10 +215,6 @@ void UART4_IRQHandler(void)
 		espRecoverUart();
 	}
 
-	/*if (__HAL_UART_GET_FLAG(&huart4, UART_FLAG_ORE) || __HAL_UART_GET_FLAG(&huart4, UART_FLAG_FE))
-	{
-		espRecoverUart();
-	}*/
   /* USER CODE END UART4_IRQn 0 */
 	HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */

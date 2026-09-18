@@ -19,7 +19,6 @@ osSemaphoreId_t uart4RxSemHandle; // Used to signal that data has arrived from t
 
 #define ESP_TX_BUFFERSIZE  64
 #define ESP_RX_BUFFERSIZE 512 	  // Size of our receive buffer for the ESP8266
-static uint8_t uartTxBuffer[ESP_TX_BUFFERSIZE];
 static uint8_t uartRxBuffer[ESP_RX_BUFFERSIZE];
 uint16_t espDmaLastPos = 0; 	  // End of last data buffer processed
 static volatile uint32_t espDmaWrapCount = 0; // Tracks how many times the buffer has filled up
@@ -120,7 +119,7 @@ esp_status_t espMatchWord(const char *wordToMatch)
 		}
 		else
 		{
-			break; // timeout without data received
+			break; // timeout with no data received
 		}
 	}
 
@@ -140,9 +139,11 @@ esp_status_t espWaitReady()
 	// Raise enable pin to turn on ESP module.
 	HAL_GPIO_WritePin(ESP_ENABLE_GPIO_Port, ESP_ENABLE_Pin, GPIO_PIN_SET);
 
+	osDelay(200);
+
 	// Examine RX buffer as data arrives, looking for "ready" word.
 	const char readyString[] = "ready\r\n";
-	esp_status_t readyStatus = espMatchWord(readyString) == 0 ? ESP_SUCCESS : ESP_ERROR;
+	esp_status_t readyStatus = espMatchWord(readyString);
 
 	// Process and clear any additional data we may have received after matching "ready"
 	for (;;)
@@ -168,20 +169,25 @@ esp_status_t espStart()
 		return ESP_ERROR;
 	}
 
+	char errorBuffer[64];
+
 	esp_status_t readyRes = espWaitReady();
 	if (readyRes != ESP_SUCCESS)
 	{
-		HAL_UART_Transmit(_huartEcho, (const uint8_t *)"UART error\r\n", 12, 100);
+		uint16_t pos = ESP_RX_BUFFERSIZE - __HAL_DMA_GET_COUNTER(_huartESP->hdmarx);
+		snprintf(errorBuffer, sizeof(errorBuffer), "UART error %u, pos=%hu\r\n",
+				(unsigned int)readyRes, pos);
+		HAL_UART_Transmit(_huartEcho, (const uint8_t *)errorBuffer, strlen(errorBuffer), 100);
 		return readyRes;
 	}
 
-	HAL_UART_Transmit(_huartEcho, (const uint8_t *)"Got ready\r\n", 11, 100);
+	//HAL_UART_Transmit(_huartEcho, (const uint8_t *)"Got ready\r\n", 11, 100);
 
-	const uint8_t at_cmd[] = "AT\r\n";
+	/*const uint8_t at_cmd[] = "AT\r\n";
 	if (espSendSync(at_cmd) != ESP_SUCCESS)
-		return ESP_ERROR;
+		return ESP_ERROR;*/
 
-	const uint8_t mode_cmd[] = "AT+CWMODE=1\r\n";
+	/*const uint8_t mode_cmd[] = "AT+CWMODE=1\r\n";
 	if (espSendSync(mode_cmd) != ESP_SUCCESS)
 		return ESP_ERROR;
 
@@ -191,54 +197,73 @@ esp_status_t espStart()
 
 	const char connect_cmd[] = "AT+CWJAP=\"Delphi\",\"%s\"\r\n";
 	snprintf((char *)uartTxBuffer, sizeof(uartTxBuffer), connect_cmd, WIFI_PASSWORD);
-	espSendSync(uartTxBuffer);
+	espSendSync(uartTxBuffer);*/
 
 	const uint8_t queryip_cmd[] = "AT+CIPSTA?\r\n";
 	espSendSync(queryip_cmd);
+
+	/*const uint8_t querysleep_cmd[] = "AT+SLEEP?\r\n";
+	espSendSync(querysleep_cmd);
+
+	const uint8_t querystore_cmd[] = "AT+SYSSTORE?\r\n";
+	espSendSync(querystore_cmd);
+
+	const uint8_t querycountry_cmd[] = "AT+CWCOUNTRY?\r\n";
+	espSendSync(querycountry_cmd);*/
+
+	const uint8_t queryver_cmd[] = "AT+GMR\r\n";
+	espSendSync(queryver_cmd);
 
 	return ESP_SUCCESS;
 }
 
 #define min(x, y) (((x) < (y)) ? (x) : (y))
 
+uint8_t espEchoBuffer(uint16_t start, uint16_t end)
+{
+	uint8_t foundOK = 0;
+	char responseBuffer[64];
+	for (uint16_t currentPos = start; currentPos < end; )
+	{
+		uint16_t copyLen = min(end - currentPos, 64);
+		memcpy(responseBuffer, (const char *)uartRxBuffer + currentPos, copyLen);
+		HAL_UART_Transmit(_huartEcho, (const uint8_t *)responseBuffer, copyLen, 100);
+		currentPos += copyLen;
+
+		if (strstr(responseBuffer, "OK\r\n") != 0)
+		{
+			foundOK = 1;
+		}
+	}
+
+	return foundOK;
+}
+
 esp_status_t espSendSync(const uint8_t *cmd)
 {
 	// Send AT command to the ESP8266
 	HAL_UART_Transmit(_huartESP, cmd, strlen((const char *)cmd), 100);
 
-	char responseBuffer[64];
 	for (;;)
 	{
 		if (osSemaphoreAcquire(uart4RxSemHandle, 100) == osOK)
 		{
 			uint16_t pos = ESP_RX_BUFFERSIZE - __HAL_DMA_GET_COUNTER(_huartESP->hdmarx);
-			uint16_t len = 0;
 
-			if (pos > espDmaLastPos)
+			if (pos > espDmaLastPos) // Buffer has not wrapped
 			{
-				len = pos - espDmaLastPos;
-				uint16_t copyLen = min(len, 63);
-				memcpy(responseBuffer, (const char *)uartRxBuffer + espDmaLastPos, copyLen);
-				responseBuffer[copyLen] = '\0';
-				len = copyLen;
-			}
-			else if (pos < espDmaLastPos)
-			{
-				uint16_t firstPart = ESP_RX_BUFFERSIZE - espDmaLastPos;
-				uint16_t secondPart = pos;
-				uint16_t totalLen = firstPart + secondPart;
-				uint16_t copyLen = min(totalLen, 63);
-
-				uint16_t firstCopy = min(firstPart, copyLen);
-				memcpy(responseBuffer, (const char *)uartRxBuffer + espDmaLastPos, firstCopy);
-
-				if (copyLen > firstCopy)
+				if (espEchoBuffer(espDmaLastPos, pos))
 				{
-					memcpy(responseBuffer + firstCopy, uartRxBuffer, copyLen - firstCopy);
+					return ESP_SUCCESS; // We found OK
 				}
-
-				responseBuffer[copyLen] = '\0';
-				len = copyLen;
+			}
+			else if (pos < espDmaLastPos) // Buffer has wrapped
+			{
+				espEchoBuffer(espDmaLastPos, ESP_RX_BUFFERSIZE);
+				if (espEchoBuffer(0, pos))
+				{
+					return ESP_SUCCESS; // We found OK
+				}
 			}
 			else
 			{
@@ -246,19 +271,15 @@ esp_status_t espSendSync(const uint8_t *cmd)
 				continue;
 			}
 
-			HAL_UART_Transmit(_huartEcho, (const uint8_t *)responseBuffer, len, 100);
 			espDmaLastPos = pos;
-
-			if (strstr(responseBuffer, "OK\r\n") != 0)
-			{
-				return ESP_SUCCESS;
-			}
-			else if (strstr(responseBuffer, "ERROR\r\n") != 0)
-			{
-				return ESP_ERROR;
-			}
+		}
+		else
+		{
+			return ESP_TIMEOUT;
 		}
 	}
+
+	return ESP_ERROR;
 }
 
 void espRxCpltCallback(UART_HandleTypeDef *huart)
