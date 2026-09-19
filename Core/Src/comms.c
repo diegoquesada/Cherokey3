@@ -23,6 +23,8 @@ static uint8_t uartRxBuffer[ESP_RX_BUFFERSIZE];
 uint16_t espDmaLastPos = 0; 	  // End of last data buffer processed
 static volatile uint32_t espDmaWrapCount = 0; // Tracks how many times the buffer has filled up
 
+uint8_t socketOpen = 0;
+
 void espInit(UART_HandleTypeDef *huartESP, UART_HandleTypeDef *huartEcho)
 {
 	_huartESP = huartESP;
@@ -37,12 +39,12 @@ void espInit(UART_HandleTypeDef *huartESP, UART_HandleTypeDef *huartEcho)
  * Looks for a word in the ESP8266 RX.
  * @return 0 if the word is found, 1 if timeout occurred.
  */
-esp_status_t espMatchWord(const char *wordToMatch)
+esp_status_t espMatchWord(const char *wordToMatch, uint32_t timeout)
 {
 	uint8_t wordFound = 0;
 	while (!wordFound)
 	{
-		if (osSemaphoreAcquire(uart4RxSemHandle, 100) == osOK)
+		if (osSemaphoreAcquire(uart4RxSemHandle, timeout) == osOK)
 		{
 			uint16_t matchIndex = 0;
 			uint16_t pos = ESP_RX_BUFFERSIZE - __HAL_DMA_GET_COUNTER(_huartESP->hdmarx);
@@ -130,20 +132,26 @@ esp_status_t espWaitReady()
 {
 	// Examine RX buffer as data arrives, looking for "ready" word.
 	const char readyString[] = "ready\r\n";
-	esp_status_t readyStatus = espMatchWord(readyString);
+	esp_status_t readyStatus = espMatchWord(readyString, 100);
+	if (readyStatus != ESP_SUCCESS)
+		return readyStatus;
 
-	// Process and clear any additional data we may have received after matching "ready"
-	for (;;)
+	HAL_UART_Transmit(_huartEcho, (const uint8_t *)"ready\r\n", 7, 100);
+
+	// Look for a message that indicates the ESP module has reconnected
+	// to a previously stored SSID. Wait for up to 5 s.
+	for (uint8_t retries = 0; retries < 5; retries++)
 	{
-		if (osSemaphoreAcquire(uart4RxSemHandle, 1000) == osOK)
+		readyStatus = espMatchWord("WIFI GOT IP\r\n", 1000);
+		if (readyStatus == ESP_SUCCESS)
 		{
-			// Advance pointer so as to ignore additional data received.
-			espDmaLastPos = ESP_RX_BUFFERSIZE - __HAL_DMA_GET_COUNTER(_huartESP->hdmarx);
-		}
-		else
-		{
+			HAL_UART_Transmit(_huartEcho, (const uint8_t *)"CONNECTED\r\n", 11, 100);
 			break;
 		}
+		else if (readyStatus == ESP_TIMEOUT)
+			continue;
+		else
+			break;
 	}
 
 	return readyStatus;
@@ -201,9 +209,6 @@ esp_status_t espStart()
 
 	/*const uint8_t queryver_cmd[] = "AT+GMR\r\n";
 	espSendSync(queryver_cmd);*/
-
-	const uint8_t tcp_cmd[] = "AT+CIPSTART=\"TCP\",\"192.168.1.232\",9576\r\n";
-	espSendSync(tcp_cmd, 200);
 
 	return ESP_SUCCESS;
 }
@@ -318,11 +323,25 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 	}
 }
 
+esp_status_t espOpenSocket()
+{
+	const uint8_t tcp_cmd[] = "AT+CIPSTART=\"TCP\",\"192.168.1.232\",9576\r\n";
+	esp_status_t retStatus = espSendSync(tcp_cmd, 200);
+	if (retStatus == ESP_SUCCESS)
+	{
+		socketOpen = 1;
+	}
+
+	return retStatus;
+}
+
 esp_status_t espSendSocket(const uint8_t *data, uint16_t len)
 {
 	if (_huartESP == 0)
 		return ESP_ERROR;
 	if (data == 0 || len > 64)
+		return ESP_ERROR;
+	if (!socketOpen)
 		return ESP_ERROR;
 
 	uint8_t dataBuffer[64];
@@ -333,3 +352,13 @@ esp_status_t espSendSocket(const uint8_t *data, uint16_t len)
 
 	return ESP_SUCCESS;
 }
+
+esp_status_t espCloseSocket()
+{
+	if (!socketOpen)
+		return ESP_ERROR;
+
+	const uint8_t close_cmd[] = "AT+CIPCLOSE\r\n";
+	return espSendSync(close_cmd, 100);
+}
+

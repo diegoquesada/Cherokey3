@@ -31,6 +31,9 @@ esp_status_t espStart();
 esp_status_t espSendSync(const uint8_t *cmd, uint32_t timeout);
 void espRxCpltCallback(UART_HandleTypeDef *huart);
 void espRecoverUart();
+
+esp_status_t espOpenSocket();
 esp_status_t espSendSocket(const uint8_t *data, uint16_t len);
+esp_status_t espCloseSocket();
 
 #endif /* INC_COMMS_H_ */

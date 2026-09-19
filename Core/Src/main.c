@@ -715,6 +715,8 @@ void UpdateSerial(void *argument)
 
     espStart();
 
+    uint8_t socketOpen = (espOpenSocket() == ESP_SUCCESS);
+
 	/* Infinite loop */
 	for(;;)
 	{
@@ -724,8 +726,11 @@ void UpdateSerial(void *argument)
 		len = snprintf(tx_buffer, sizeof(tx_buffer), "D: %lu mm, S: (%li, %li)\r\n", lastDistanceMm, carSpeed[0], carSpeed[1]);
 		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
 
-		// Send status via ESP socket
-		espSendSocket((uint8_t *)tx_buffer, len);
+		// Send status via ESP socket.
+		if (socketOpen)
+		{
+			espSendSocket((uint8_t *)tx_buffer, len);
+		}
 	}
   /* USER CODE END UpdateSerial */
 }
