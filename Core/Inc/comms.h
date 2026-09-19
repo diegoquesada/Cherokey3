@@ -28,8 +28,9 @@ void espInit(UART_HandleTypeDef *huartESP, UART_HandleTypeDef *huartEcho);
  */
 esp_status_t espStart();
 
-esp_status_t espSendSync(const uint8_t *cmd);
+esp_status_t espSendSync(const uint8_t *cmd, uint32_t timeout);
 void espRxCpltCallback(UART_HandleTypeDef *huart);
 void espRecoverUart();
+esp_status_t espSendSocket(const uint8_t *data, uint16_t len);
 
 #endif /* INC_COMMS_H_ */

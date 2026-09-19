@@ -718,11 +718,14 @@ void UpdateSerial(void *argument)
 	/* Infinite loop */
 	for(;;)
 	{
-		osDelay(1000);
+		osDelay(5000);
 
 		// Send distance via huart2
 		len = snprintf(tx_buffer, sizeof(tx_buffer), "D: %lu mm, S: (%li, %li)\r\n", lastDistanceMm, carSpeed[0], carSpeed[1]);
 		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
+
+		// Send status via ESP socket
+		espSendSocket((uint8_t *)tx_buffer, len);
 	}
   /* USER CODE END UpdateSerial */
 }
