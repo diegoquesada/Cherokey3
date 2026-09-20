@@ -1,3 +1,13 @@
+""" robot_server.py
+Script to test telemetry sent by the robot
+Copyright (c) 2026 Diego Quesada
+All rights reserved.
+
+This software is licensed under terms that can be found in the LICENSE file
+in the root directory of this software component.
+If no LICENSE file comes with this software, it is provided AS-IS.
+"""
+
 import socket
 import sys
 

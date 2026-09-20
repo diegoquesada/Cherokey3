@@ -1,9 +1,15 @@
-/*
- * comms.c
- *
- *  Created on: Sep 2, 2026
- *      Author: diegoq
- */
+/**
+  * @file           : comms.c
+  * @brief          : Communication via ESP8266 module
+  *
+  * Copyright (c) 2026 Diego Quesada
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  */
 
 #include <string.h>
 #include <stdio.h>
@@ -205,7 +211,7 @@ esp_status_t espStart()
 	espSendSync(uartTxBuffer);*/
 
 	const uint8_t queryip_cmd[] = "AT+CIPSTA?\r\n";
-	espSendSync(queryip_cmd, 100);
+	espSendSync(queryip_cmd, 100, 1);
 
 	/*const uint8_t queryver_cmd[] = "AT+GMR\r\n";
 	espSendSync(queryver_cmd);*/
@@ -215,7 +221,7 @@ esp_status_t espStart()
 
 #define min(x, y) (((x) < (y)) ? (x) : (y))
 
-uint8_t espEchoBuffer(uint16_t start, uint16_t end)
+uint8_t espCheckOK(uint16_t start, uint16_t end, uint8_t echo)
 {
 	uint8_t foundOK = 0;
 	char responseBuffer[64];
@@ -223,7 +229,9 @@ uint8_t espEchoBuffer(uint16_t start, uint16_t end)
 	{
 		uint16_t copyLen = min(end - currentPos, 64);
 		memcpy(responseBuffer, (const char *)uartRxBuffer + currentPos, copyLen);
-		HAL_UART_Transmit(_huartEcho, (const uint8_t *)responseBuffer, copyLen, 100);
+
+		if (echo)
+			HAL_UART_Transmit(_huartEcho, (const uint8_t *)responseBuffer, copyLen, 100);
 		currentPos += copyLen;
 
 		if (strstr(responseBuffer, "OK\r\n") != 0)
@@ -235,7 +243,7 @@ uint8_t espEchoBuffer(uint16_t start, uint16_t end)
 	return foundOK;
 }
 
-esp_status_t espSendSync(const uint8_t *cmd, uint32_t timeout)
+esp_status_t espSendSync(const uint8_t *cmd, uint32_t timeout, uint8_t echo)
 {
 	if (_huartESP == 0)
 		return ESP_ERROR;
@@ -252,7 +260,7 @@ esp_status_t espSendSync(const uint8_t *cmd, uint32_t timeout)
 
 			if (pos > espDmaLastPos) // Buffer has not wrapped
 			{
-				if (espEchoBuffer(espDmaLastPos, pos))
+				if (espCheckOK(espDmaLastPos, pos, echo))
 				{
 					retStatus = ESP_SUCCESS;
 					done = 1; // We found OK.
@@ -260,8 +268,8 @@ esp_status_t espSendSync(const uint8_t *cmd, uint32_t timeout)
 			}
 			else if (pos < espDmaLastPos) // Buffer has wrapped
 			{
-				espEchoBuffer(espDmaLastPos, ESP_RX_BUFFERSIZE);
-				if (espEchoBuffer(0, pos))
+				espCheckOK(espDmaLastPos, ESP_RX_BUFFERSIZE, echo);
+				if (espCheckOK(0, pos, echo))
 				{
 					// Dangerous assumption: OK is in the second buffer. This needs fixing.
 					retStatus = ESP_SUCCESS;
@@ -326,7 +334,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 esp_status_t espOpenSocket()
 {
 	const uint8_t tcp_cmd[] = "AT+CIPSTART=\"TCP\",\"192.168.1.232\",9576\r\n";
-	esp_status_t retStatus = espSendSync(tcp_cmd, 200);
+	esp_status_t retStatus = espSendSync(tcp_cmd, 200, 1);
 	if (retStatus == ESP_SUCCESS)
 	{
 		socketOpen = 1;
@@ -346,9 +354,17 @@ esp_status_t espSendSocket(const uint8_t *data, uint16_t len)
 
 	uint8_t dataBuffer[64];
 	snprintf((char *)dataBuffer, 64, "AT+CIPSEND=%hu\r\n", len);
-	espSendSync(dataBuffer, 100);
+	if (espSendSync(dataBuffer, 100, 0) != ESP_SUCCESS)
+	{
+		espCloseSocket();
+		socketOpen = 0;
+	}
 
-	espSendSync(data, 200);
+	if (espSendSync(data, 200, 0) != ESP_SUCCESS)
+	{
+		espCloseSocket();
+		socketOpen = 0;
+	}
 
 	return ESP_SUCCESS;
 }
@@ -359,6 +375,6 @@ esp_status_t espCloseSocket()
 		return ESP_ERROR;
 
 	const uint8_t close_cmd[] = "AT+CIPCLOSE\r\n";
-	return espSendSync(close_cmd, 100);
+	return espSendSync(close_cmd, 100, 1);
 }
 
