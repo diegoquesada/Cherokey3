@@ -22,6 +22,8 @@
 #include "stm32f3xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "cmsis_os.h"
+#include "comms.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,7 +43,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+extern osSemaphoreId_t uart4RxSemHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -56,10 +58,12 @@
 
 /* External variables --------------------------------------------------------*/
 extern TIM_HandleTypeDef htim2;
+extern DMA_HandleTypeDef hdma_uart4_rx;
+extern UART_HandleTypeDef huart4;
 extern UART_HandleTypeDef huart2;
 extern TIM_HandleTypeDef htim6;
 
-/* USER CODE BEGIN EV */
+/* USER CODE BEGIN ECore/Src/stm32f3xx_it.cV */
 
 /* USER CODE END EV */
 
@@ -190,6 +194,35 @@ void USART2_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles UART4 global interrupt / UART4 wake-up interrupt through EXTI line 34.
+  */
+void UART4_IRQHandler(void)
+{
+  /* USER CODE BEGIN UART4_IRQn 0 */
+	// Handle idle flag by notifying SerialTask that we may have data.
+	if (__HAL_UART_GET_FLAG(&huart4, UART_FLAG_IDLE))
+	{
+		__HAL_UART_CLEAR_IDLEFLAG(&huart4);
+		// Signal SerialTask that data is ready
+		osSemaphoreRelease(uart4RxSemHandle);
+	}
+
+	// Handle errors by resetting DMA transmission.
+	if (__HAL_UART_GET_FLAG(&huart4, UART_FLAG_ORE) ||
+		__HAL_UART_GET_FLAG(&huart4, UART_FLAG_FE) ||
+		__HAL_UART_GET_FLAG(&huart4, UART_FLAG_NE))
+	{
+		espRecoverUart();
+	}
+
+  /* USER CODE END UART4_IRQn 0 */
+	HAL_UART_IRQHandler(&huart4);
+  /* USER CODE BEGIN UART4_IRQn 1 */
+
+  /* USER CODE END UART4_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM6 global interrupt and DAC1 underrun interrupt.
   */
 void TIM6_DAC_IRQHandler(void)
@@ -201,6 +234,20 @@ void TIM6_DAC_IRQHandler(void)
   /* USER CODE BEGIN TIM6_DAC_IRQn 1 */
 
   /* USER CODE END TIM6_DAC_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA2 channel3 global interrupt.
+  */
+void DMA2_Channel3_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Channel3_IRQn 0 */
+
+  /* USER CODE END DMA2_Channel3_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_uart4_rx);
+  /* USER CODE BEGIN DMA2_Channel3_IRQn 1 */
+
+  /* USER CODE END DMA2_Channel3_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */

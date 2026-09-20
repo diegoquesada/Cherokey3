@@ -21,11 +21,12 @@ The system is organized into three primary FreeRTOS tasks:
     - Controls motors via primitives defined in `driving.c` (e.g., `carAdvance`, `carStop`, `rampSingle`).
 
 3.  **`serialTask` (`SerialTask`)**:
-    - Provides telemetry by printing the current distance to the console via **UART2** every second.
+    - Provides telemetry by printing the current distance to the console via **UART2** every second. As a debugging aid, it also echos the responses from an ESP8266 module.
 
 ### Key Modules
 - **`Core/Src/main.c`**: Application entry point, hardware initialization (HAL), and RTOS task management.
 - **`Core/Src/driving.c` / `Core/Inc/driving.h`**: Low-level motor control logic and driving primitives.
+- **`Core/Src/comms.c` / `Core/Inc/comms.h`**: ESP8266 module interface.
 - **`Drivers/`**: STM32 HAL and CMSIS drivers.
 - **`Middlewares/`**: FreeRTOS kernel source.
 
@@ -34,4 +35,6 @@ The system is organized into three primary FreeRTOS tasks:
 - **TIM4**: Motor PWM generation (Channels 1 & 2).
 - **TIM6**: HAL time base.
 - **TIM7**: Microsecond delay generator.
-- **UART2**: Serial debug output.
+- **UART2**: Serial debug output at 9600 baud.
+- **UART4**: Serial interface to ESP8266 module at 115200 baud.
+- **PA10**: GPIO signal for ESP8266 enable pin.

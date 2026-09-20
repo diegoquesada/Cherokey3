@@ -2,6 +2,7 @@
 *.launch
 .settings/
 *.ld
+secrets.h
 
 Debug/
 Release/

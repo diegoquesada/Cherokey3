@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "driving.h"
+#include "comms.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,6 +37,7 @@
 /* USER CODE BEGIN PD */
 #define DISTANCE_READY (1U << 0)
 #define BUTTON_PRESS_FLAG (1U << 1)
+#define CHEROKEY_VERSION "Cherokey3 v0.2"
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,7 +50,9 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim7;
 
+UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_uart4_rx;
 
 /* Definitions for ultrasonicTask */
 osThreadId_t ultrasonicTaskHandle;
@@ -64,32 +68,34 @@ const osThreadAttr_t motorTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
-/* Definitions for serial */
-osThreadId_t serialHandle;
-const osThreadAttr_t serial_attributes = {
-  .name = "serial",
+/* Definitions for serialTask */
+osThreadId_t serialTaskHandle;
+const osThreadAttr_t serialTask_attributes = {
+  .name = "serialTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityBelowNormal,
 };
 /* USER CODE BEGIN PV */
-uint32_t ultraDistance = 0;
-uint8_t icFlag = 0;
-uint8_t ultraCaptureState = 0;
-uint32_t ultraRisingTime = 0, ultraFallingTime = 0;
-const float speedOfSound = 0.343/2; // mm / us
-volatile uint32_t lastDistanceMm;
+uint8_t icFlag = 0; // Set to 1 when we capture the ultrasonic signal's falling edge
+uint8_t ultraCaptureState = 0; // Is 0 when ready to capture falling edge, 1 for falling edge
+uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
+volatile uint32_t lastDistanceMm; // Last measured distance to obstacle
+int32_t carSpeed[2] = { 0, 0 };
+uint8_t uart4RxBuffer[64];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM7_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_UART4_Init(void);
 void UpdateUltra(void *argument);
 void UpdateMotor(void *argument);
-void SerialTask(void *argument);
+void UpdateSerial(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -129,12 +135,15 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM2_Init();
   MX_TIM7_Init();
   MX_USART2_UART_Init();
   MX_TIM4_Init();
+  MX_UART4_Init();
   /* USER CODE BEGIN 2 */
 
+  espInit(&huart4, &huart2);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -145,7 +154,6 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -163,8 +171,8 @@ int main(void)
   /* creation of motorTask */
   motorTaskHandle = osThreadNew(UpdateMotor, NULL, &motorTask_attributes);
 
-  /* creation of serial */
-  serialHandle = osThreadNew(SerialTask, NULL, &serial_attributes);
+  /* creation of serialTask */
+  serialTaskHandle = osThreadNew(UpdateSerial, NULL, &serialTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -228,9 +236,10 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_TIM2
-                              |RCC_PERIPHCLK_TIM34;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_UART4
+                              |RCC_PERIPHCLK_TIM2|RCC_PERIPHCLK_TIM34;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
+  PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_PCLK1;
   PeriphClkInit.Tim2ClockSelection = RCC_TIM2CLK_HCLK;
   PeriphClkInit.Tim34ClockSelection = RCC_TIM34CLK_HCLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
@@ -389,6 +398,41 @@ static void MX_TIM7_Init(void)
 }
 
 /**
+  * @brief UART4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_UART4_Init(void)
+{
+
+  /* USER CODE BEGIN UART4_Init 0 */
+
+  /* USER CODE END UART4_Init 0 */
+
+  /* USER CODE BEGIN UART4_Init 1 */
+
+  /* USER CODE END UART4_Init 1 */
+  huart4.Instance = UART4;
+  huart4.Init.BaudRate = 115200;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_TX_RX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart4.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart4.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN UART4_Init 2 */
+
+  /* USER CODE END UART4_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -404,7 +448,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 9600;
+  huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -420,6 +464,22 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Channel3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Channel3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Channel3_IRQn);
 
 }
 
@@ -442,7 +502,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, ULTRA_TRIG_Pin|LD3_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, ULTRA_TRIG_Pin|LD3_Pin|ESP_ENABLE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, PIN_MOTOR1_Pin|PIN_MOTOR2_Pin, GPIO_PIN_RESET);
@@ -466,6 +526,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ESP_ENABLE_Pin */
+  GPIO_InitStruct.Pin = ESP_ENABLE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(ESP_ENABLE_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -512,6 +579,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	}
 }
 
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if (huart == &huart4)
+	{
+		espRxCpltCallback(huart);
+	}
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_UpdateUltra */
@@ -550,6 +625,7 @@ void UpdateUltra(void *argument)
 	  HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
 
 	  // Calculate distance in mm.
+	  uint32_t ultraDistance = 0;
 	  if (ultraFallingTime > ultraRisingTime) {
 		  ultraDistance = (ultraFallingTime - ultraRisingTime) * 100 / 583;
 	  }
@@ -557,9 +633,13 @@ void UpdateUltra(void *argument)
 		  ultraDistance = 0;
 	  }
 
-	  //osMessageQueuePut(ultraQueueHandle, &ultraDistance, 0, 0);
-	  lastDistanceMm = ultraDistance;
-	  osThreadFlagsSet(motorTaskHandle, DISTANCE_READY);
+	  // Quantize to 20mm. This avoid constant speed adjustments due to small moments.
+	  if ((ultraDistance / 20 * 20) != lastDistanceMm)
+	  {
+		  //osMessageQueuePut(ultraQueueHandle, &ultraDistance, 0, 0);
+		  lastDistanceMm = ultraDistance / 20 * 20;
+		  osThreadFlagsSet(motorTaskHandle, DISTANCE_READY);
+	  }
 
 	  /*snprintf(buf, 20, "Distance: %i\r\n", (int)ultraDistance);
 	  HAL_UART_Transmit_IT(&huart2, (uint8_t *)buf, strlen(buf)+1);*/
@@ -588,54 +668,71 @@ void UpdateMotor(void *argument)
     uint32_t flags = osThreadFlagsWait(DISTANCE_READY, osFlagsWaitAny, osWaitForever);
     if (flags & DISTANCE_READY)
     {
-    	distance = lastDistanceMm;
+    	distance = (lastDistanceMm / 20) * 20; // Quantize at 2cm
     	if (distance > 1000)
     	{
-    		carAdvance(CAR_FORWARD, CAR_FULL_SPEED);
+    		carSpeed[0] = carSpeed[1] = CAR_FULL_SPEED;
+    		//carAdvance(CAR_FORWARD, carSpeed[0]);
     	}
     	else if (distance > 500)
     	{
-    		carAdvance(CAR_FORWARD, (CAR_HALF_SPEED * distance) / 500); // proportional to distance
+    		carSpeed[0] = carSpeed[1] = (CAR_HALF_SPEED * distance) / 500; // proportional to distance
+    		//carAdvance(CAR_FORWARD, carSpeed[0]);
     	}
     	else if (distance > 200)
     	{
     		// Turn towards the right
-			rampSingle(CAR_LEFT_MOTOR, 2000);
-			rampSingle(CAR_RIGHT_MOTOR, 1000);
+    		carSpeed[0] = 2000;
+    		carSpeed[1] = 1000;
+			//rampSingle(CAR_LEFT_MOTOR, carSpeed[0]);
+			//rampSingle(CAR_RIGHT_MOTOR, carSpeed[1]);
     	}
     	else
     	{
     		// Stop and reverse
     		carStop();
-    		carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
+    		carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
+    		//carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
     	}
     }
   }
   /* USER CODE END UpdateMotor */
 }
 
-/* USER CODE BEGIN Header_SerialTask */
+/* USER CODE BEGIN Header_UpdateSerial */
 /**
-* @brief Function implementing the serial thread.
+* @brief Function implementing the serialTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_SerialTask */
-void SerialTask(void *argument)
+/* USER CODE END Header_UpdateSerial */
+void UpdateSerial(void *argument)
 {
-  /* USER CODE BEGIN SerialTask */
-	uint32_t distance;
-	char buffer[64];
-  /* Infinite loop */
-  for(;;)
-  {
-	  osDelay(1000);
+  /* USER CODE BEGIN UpdateSerial */
+	char tx_buffer[64];
+	int len = snprintf(tx_buffer, sizeof(tx_buffer), "%s\r\n", CHEROKEY_VERSION);
+    HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
 
-	  distance = lastDistanceMm;
-	  int len = snprintf(buffer, sizeof(buffer), "D: %lu mm\r\n", distance);
-	  HAL_UART_Transmit(&huart2, (uint8_t *)buffer, len, 100);
-  }
-  /* USER CODE END SerialTask */
+    espStart();
+
+    uint8_t socketOpen = 0;
+
+	/* Infinite loop */
+	for(;;)
+	{
+		osDelay(1000);
+
+		// Send distance via huart2
+		len = snprintf(tx_buffer, sizeof(tx_buffer), "D: %lu mm, S: (%li, %li)\r\n", lastDistanceMm, carSpeed[0], carSpeed[1]);
+		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
+
+		// Send status via ESP socket.
+		if (!socketOpen)
+			socketOpen = espOpenSocket() == ESP_SUCCESS;
+		if (socketOpen)
+			socketOpen = espSendSocket((uint8_t *)tx_buffer, len) == ESP_SUCCESS;
+	}
+  /* USER CODE END UpdateSerial */
 }
 
 /**
