@@ -26,6 +26,7 @@
 #include <string.h>
 #include "driving.h"
 #include "comms.h"
+#include "bmm150.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,7 +47,7 @@ typedef enum {
 /* USER CODE BEGIN PD */
 #define DISTANCE_READY (1U << 0)
 #define BUTTON_PRESS_FLAG (1U << 1)
-#define CHEROKEY_VERSION "Cherokey3 v0.2"
+#define CHEROKEY_VERSION "Cherokey3 v0.3"
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,6 +56,8 @@ typedef enum {
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim7;
@@ -84,6 +87,13 @@ const osThreadAttr_t serialTask_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
+/* Definitions for geoTask */
+osThreadId_t geoTaskHandle;
+const osThreadAttr_t geoTask_attributes = {
+  .name = "geoTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
 uint8_t icFlag = 0; 			// Set to 1 when we capture the ultrasonic signal's falling edge
 uint8_t ultraCaptureState = 0; 	// Set to 0 when ready to capture falling edge, 1 for falling edge
@@ -104,9 +114,11 @@ static void MX_TIM7_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_UART4_Init(void);
+static void MX_I2C1_Init(void);
 void UpdateUltra(void *argument);
 void UpdateMotor(void *argument);
 void UpdateSerial(void *argument);
+void UpdateGeoSensor(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -152,6 +164,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM4_Init();
   MX_UART4_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
   espInit(&huart4, &huart2);
@@ -184,6 +197,9 @@ int main(void)
 
   /* creation of serialTask */
   serialTaskHandle = osThreadNew(UpdateSerial, NULL, &serialTask_attributes);
+
+  /* creation of geoTask */
+  geoTaskHandle = osThreadNew(UpdateGeoSensor, NULL, &geoTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -248,15 +264,65 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_UART4
-                              |RCC_PERIPHCLK_TIM2|RCC_PERIPHCLK_TIM34;
+                              |RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_TIM2
+                              |RCC_PERIPHCLK_TIM34;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
   PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_PCLK1;
+  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   PeriphClkInit.Tim2ClockSelection = RCC_TIM2CLK_HCLK;
   PeriphClkInit.Tim34ClockSelection = RCC_TIM34CLK_HCLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x00201D2B;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -756,6 +822,32 @@ void UpdateSerial(void *argument)
 			socketOpen = espSendSocket((uint8_t *)tx_buffer, len) == ESP_SUCCESS;
 	}
   /* USER CODE END UpdateSerial */
+}
+
+/* USER CODE BEGIN Header_UpdateGeoSensor */
+/**
+* @brief Function implementing the geoTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_UpdateGeoSensor */
+void UpdateGeoSensor(void *argument)
+{
+  /* USER CODE BEGIN UpdateGeoSensor */
+	HAL_StatusTypeDef res = HAL_I2C_IsDeviceReady(&hi2c1, BMM150_I2C_ADDRESS_CSB_HIGH_SDO_HIGH << 1, 2, 2000);
+	if (res == HAL_OK)
+	{
+		if (bmm150Init() == BMM150_SUCCESS)
+		{
+			bmm150SetOpMode(BMM150_POWERMODE_NORMAL);
+		}
+	}
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END UpdateGeoSensor */
 }
 
 /**
