@@ -1,9 +1,13 @@
-/*
- * driving.c
- * Implementation of motor driving routines.
+/**
+ * @file			: driving.c
+ * @brief			: Implementation of motor driving routines.
  *
- *  Created on: Dec 19, 2025
- *      Author: Diego Quesada 
+ * Copyright (c) 2026 Diego Quesada
+ * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
  */
 
 #include "stm32f3xx_hal.h"
