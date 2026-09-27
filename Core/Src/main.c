@@ -30,7 +30,16 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef enum {
+	carInvalid,
+	carStopped,
+	carForward,
+	carTurningRight,
+	carTurningLeft,
+	carReverse,
+	carReverseRight,
+	carReverseLeft
+} CarState_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -76,12 +85,14 @@ const osThreadAttr_t serialTask_attributes = {
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
 /* USER CODE BEGIN PV */
-uint8_t icFlag = 0; // Set to 1 when we capture the ultrasonic signal's falling edge
-uint8_t ultraCaptureState = 0; // Is 0 when ready to capture falling edge, 1 for falling edge
+uint8_t icFlag = 0; 			// Set to 1 when we capture the ultrasonic signal's falling edge
+uint8_t ultraCaptureState = 0; 	// Set to 0 when ready to capture falling edge, 1 for falling edge
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
 volatile uint32_t lastDistanceMm; // Last measured distance to obstacle
-int32_t carSpeed[2] = { 0, 0 };
-uint8_t uart4RxBuffer[64];
+int32_t carSpeed[2] = { 0, 0 };	// Speed of the left and right motors
+CarState_t carState = carStopped; // Current state of the car
+char carStateLetters[] = "ISFRLvrl";
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -502,7 +513,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, ULTRA_TRIG_Pin|LD3_Pin|ESP_ENABLE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, ESP_ENABLE_Pin|ULTRA_TRIG_Pin|LD3_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, PIN_MOTOR1_Pin|PIN_MOTOR2_Pin, GPIO_PIN_RESET);
@@ -513,8 +524,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : ULTRA_TRIG_Pin LD3_Pin */
-  GPIO_InitStruct.Pin = ULTRA_TRIG_Pin|LD3_Pin;
+  /*Configure GPIO pins : ESP_ENABLE_Pin ULTRA_TRIG_Pin LD3_Pin */
+  GPIO_InitStruct.Pin = ESP_ENABLE_Pin|ULTRA_TRIG_Pin|LD3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -526,13 +537,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : ESP_ENABLE_Pin */
-  GPIO_InitStruct.Pin = ESP_ENABLE_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(ESP_ENABLE_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -665,36 +669,46 @@ void UpdateMotor(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    uint32_t flags = osThreadFlagsWait(DISTANCE_READY, osFlagsWaitAny, osWaitForever);
-    if (flags & DISTANCE_READY)
-    {
-    	distance = (lastDistanceMm / 20) * 20; // Quantize at 2cm
-    	if (distance > 1000)
-    	{
-    		carSpeed[0] = carSpeed[1] = CAR_FULL_SPEED;
-    		//carAdvance(CAR_FORWARD, carSpeed[0]);
-    	}
-    	else if (distance > 500)
-    	{
-    		carSpeed[0] = carSpeed[1] = (CAR_HALF_SPEED * distance) / 500; // proportional to distance
-    		//carAdvance(CAR_FORWARD, carSpeed[0]);
-    	}
-    	else if (distance > 200)
-    	{
-    		// Turn towards the right
-    		carSpeed[0] = 2000;
-    		carSpeed[1] = 1000;
-			//rampSingle(CAR_LEFT_MOTOR, carSpeed[0]);
-			//rampSingle(CAR_RIGHT_MOTOR, carSpeed[1]);
-    	}
-    	else
-    	{
-    		// Stop and reverse
-    		carStop();
-    		carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
-    		//carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
-    	}
-    }
+	  // Wait for measurement from u/s sensor
+	uint32_t flags = osThreadFlagsWait(DISTANCE_READY, osFlagsWaitAny, osWaitForever);
+	if (flags & DISTANCE_READY)
+	{
+		distance = (lastDistanceMm / 20) * 20; // Quantize at 2cm
+		if (distance > 1000)
+		{
+			carState = carForward;
+			carSpeed[0] = carSpeed[1] = CAR_FULL_SPEED;
+			carAdvance(CAR_FORWARD, carSpeed[0]);
+		}
+		else if (distance > 500)
+		{
+			carState = carForward;
+			carSpeed[0] = carSpeed[1] = (CAR_HALF_SPEED * distance) / 500; // proportional to distance
+			carAdvance(CAR_FORWARD, carSpeed[0]);
+		}
+		else if (distance > 200)
+		{
+			// Turn towards the right
+			carState = carTurningRight;
+			carSpeed[0] = 2000;
+			carSpeed[1] = 1000;
+			rampSingle(CAR_LEFT_MOTOR, carSpeed[0]);
+			rampSingle(CAR_RIGHT_MOTOR, carSpeed[1]);
+		}
+		else
+		{
+			if (carState != carReverse)
+			{
+				// Stop and reverse
+				carState = carStopped;
+				carStop();
+			}
+
+			carState = carReverse;
+			carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
+			carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
+		}
+	}
   }
   /* USER CODE END UpdateMotor */
 }
@@ -716,19 +730,28 @@ void UpdateSerial(void *argument)
     espStart();
 
     uint8_t socketOpen = 0;
+	CarState_t lastState = carInvalid;
 
 	/* Infinite loop */
 	for(;;)
 	{
 		osDelay(1000);
 
-		// Send distance via huart2
-		len = snprintf(tx_buffer, sizeof(tx_buffer), "D: %lu mm, S: (%li, %li)\r\n", lastDistanceMm, carSpeed[0], carSpeed[1]);
+		// Send state and distance via huart2
+		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c S: %c, D: %lu mm, S: (%li, %li)\r\n",
+				(carState == lastState) ? (int) ' ' : (int)'*', (int)carStateLetters[carState], lastDistanceMm, carSpeed[0], carSpeed[1]);
 		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
 
 		// Send status via ESP socket.
 		if (!socketOpen)
+		{
 			socketOpen = espOpenSocket() == ESP_SUCCESS;
+			if (socketOpen)
+			{
+				const uint8_t socket_msg[] = "Socket open.\r\n";
+				HAL_UART_Transmit(&huart2, socket_msg, sizeof(socket_msg), 100);
+			}
+		}
 		if (socketOpen)
 			socketOpen = espSendSocket((uint8_t *)tx_buffer, len) == ESP_SUCCESS;
 	}

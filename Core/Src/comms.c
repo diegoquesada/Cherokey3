@@ -146,7 +146,7 @@ esp_status_t espWaitReady()
 
 	// Look for a message that indicates the ESP module has reconnected
 	// to a previously stored SSID. Wait for up to 5 s.
-	for (uint8_t retries = 0; retries < 5; retries++)
+	for (uint8_t retries = 0; retries < 10; retries++)
 	{
 		readyStatus = espMatchWord("WIFI GOT IP\r\n", 1000);
 		if (readyStatus == ESP_SUCCESS)
@@ -182,7 +182,7 @@ esp_status_t espStart()
 	HAL_GPIO_WritePin(ESP_ENABLE_GPIO_Port, ESP_ENABLE_Pin, GPIO_PIN_SET);
 
 	// Give the ESP module some time to boot up.
-	osDelay(500);
+	osDelay(1000);
 
 	esp_status_t readyRes = espWaitReady();
 	if (readyRes != ESP_SUCCESS)
@@ -334,10 +334,16 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 esp_status_t espOpenSocket()
 {
 	const uint8_t tcp_cmd[] = "AT+CIPSTART=\"TCP\",\"192.168.1.232\",9576\r\n";
-	esp_status_t retStatus = espSendSync(tcp_cmd, 200, 1);
+	esp_status_t retStatus = espSendSync(tcp_cmd, 200, 0);
 	if (retStatus == ESP_SUCCESS)
 	{
 		socketOpen = 1;
+	}
+	else
+	{
+		char errorBuffer[64];
+		snprintf(errorBuffer, sizeof(errorBuffer), "Socket: UART error %u\r\n", (unsigned int)retStatus);
+		HAL_UART_Transmit(_huartEcho, (const uint8_t *)errorBuffer, strlen(errorBuffer), 100);
 	}
 
 	return retStatus;

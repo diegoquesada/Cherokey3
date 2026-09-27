@@ -63,7 +63,7 @@ extern UART_HandleTypeDef huart4;
 extern UART_HandleTypeDef huart2;
 extern TIM_HandleTypeDef htim6;
 
-/* USER CODE BEGIN ECore/Src/stm32f3xx_it.cV */
+/* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
 
@@ -216,7 +216,7 @@ void UART4_IRQHandler(void)
 	}
 
   /* USER CODE END UART4_IRQn 0 */
-	HAL_UART_IRQHandler(&huart4);
+  HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */
 
   /* USER CODE END UART4_IRQn 1 */
