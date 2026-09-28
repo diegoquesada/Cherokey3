@@ -26,6 +26,7 @@
 #include <string.h>
 #include "driving.h"
 #include "comms.h"
+#include "bmm150.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,7 +47,7 @@ typedef enum {
 /* USER CODE BEGIN PD */
 #define DISTANCE_READY (1U << 0)
 #define BUTTON_PRESS_FLAG (1U << 1)
-#define CHEROKEY_VERSION "Cherokey3 v0.2"
+#define CHEROKEY_VERSION "Cherokey3 v0.3"
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,6 +56,8 @@ typedef enum {
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c2;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim7;
@@ -67,7 +70,7 @@ DMA_HandleTypeDef hdma_uart4_rx;
 osThreadId_t ultrasonicTaskHandle;
 const osThreadAttr_t ultrasonicTask_attributes = {
   .name = "ultrasonicTask",
-  .stack_size = 256 * 4,
+  .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for motorTask */
@@ -84,14 +87,22 @@ const osThreadAttr_t serialTask_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
+/* Definitions for geoTask */
+osThreadId_t geoTaskHandle;
+const osThreadAttr_t geoTask_attributes = {
+  .name = "geoTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
-uint8_t icFlag = 0; 			// Set to 1 when we capture the ultrasonic signal's falling edge
-uint8_t ultraCaptureState = 0; 	// Set to 0 when ready to capture falling edge, 1 for falling edge
+uint8_t icFlag = 0; 				// Set to 1 when we capture the ultrasonic signal's falling edge
+uint8_t ultraCaptureState = 0; 		// Set to 0 when ready to capture falling edge, 1 for falling edge
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
-volatile uint32_t lastDistanceMm; // Last measured distance to obstacle
-int32_t carSpeed[2] = { 0, 0 };	// Speed of the left and right motors
-CarState_t carState = carStopped; // Current state of the car
+volatile uint32_t lastDistanceMm; 	// Last measured distance to obstacle
+volatile int32_t carSpeed[2] = { 0, 0 };	// Speed of the left and right motors
+CarState_t carState = carStopped; 	// Current state of the car
 char carStateLetters[] = "ISFRLvrl";
+float compassDegree;
 
 /* USER CODE END PV */
 
@@ -104,9 +115,11 @@ static void MX_TIM7_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_UART4_Init(void);
+static void MX_I2C2_Init(void);
 void UpdateUltra(void *argument);
 void UpdateMotor(void *argument);
 void UpdateSerial(void *argument);
+void UpdateGeo(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -152,6 +165,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM4_Init();
   MX_UART4_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
 
   espInit(&huart4, &huart2);
@@ -184,6 +198,9 @@ int main(void)
 
   /* creation of serialTask */
   serialTaskHandle = osThreadNew(UpdateSerial, NULL, &serialTask_attributes);
+
+  /* creation of geoTask */
+  geoTaskHandle = osThreadNew(UpdateGeo, NULL, &geoTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -248,15 +265,65 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_UART4
-                              |RCC_PERIPHCLK_TIM2|RCC_PERIPHCLK_TIM34;
+                              |RCC_PERIPHCLK_I2C2|RCC_PERIPHCLK_TIM2
+                              |RCC_PERIPHCLK_TIM34;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
   PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_PCLK1;
+  PeriphClkInit.I2c2ClockSelection = RCC_I2C2CLKSOURCE_HSI;
   PeriphClkInit.Tim2ClockSelection = RCC_TIM2CLK_HCLK;
   PeriphClkInit.Tim34ClockSelection = RCC_TIM34CLK_HCLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x00201D2B;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+
 }
 
 /**
@@ -731,6 +798,7 @@ void UpdateSerial(void *argument)
 
     uint8_t socketOpen = 0;
 	CarState_t lastState = carInvalid;
+	uint8_t stackSizePrint = 0;
 
 	/* Infinite loop */
 	for(;;)
@@ -738,9 +806,13 @@ void UpdateSerial(void *argument)
 		osDelay(1000);
 
 		// Send state and distance via huart2
-		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c S: %c, D: %lu mm, S: (%li, %li)\r\n",
-				(carState == lastState) ? (int) ' ' : (int)'*', (int)carStateLetters[carState], lastDistanceMm, carSpeed[0], carSpeed[1]);
+		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c S: %c, D: %lu mm, S: (%li, %li), C: %.2f\r\n",
+				(carState == lastState) ? (int) ' ' : (int)'*',
+				(int)carStateLetters[carState],
+				lastDistanceMm, carSpeed[0], carSpeed[1],
+				(double)compassDegree);
 		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
+		lastState = carState;
 
 		// Send status via ESP socket.
 		if (!socketOpen)
@@ -754,8 +826,57 @@ void UpdateSerial(void *argument)
 		}
 		if (socketOpen)
 			socketOpen = espSendSocket((uint8_t *)tx_buffer, len) == ESP_SUCCESS;
+
+		if (stackSizePrint++ % 5 == 0)
+		{
+			len = snprintf(tx_buffer, sizeof(tx_buffer), "Stack: %li, %li, %li, %li\r\n",
+				osThreadGetStackSpace(ultrasonicTaskHandle),
+				osThreadGetStackSpace(motorTaskHandle),
+				osThreadGetStackSpace(serialTaskHandle),
+				osThreadGetStackSpace(geoTaskHandle));
+			HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
+		}
 	}
   /* USER CODE END UpdateSerial */
+}
+
+/* USER CODE BEGIN Header_UpdateGeo */
+/**
+* @brief Function implementing the geoTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_UpdateGeo */
+void UpdateGeo(void *argument)
+{
+  /* USER CODE BEGIN UpdateGeo */
+	HAL_StatusTypeDef res = HAL_I2C_IsDeviceReady(&hi2c2, BMM150_I2C_ADDRESS_CSB_HIGH_SDO_HIGH << 1, 2, 2000);
+	if (res == HAL_OK)
+	{
+		int8_t res = bmm150Init(&hi2c2);
+		if (res == BMM150_OK)
+		{
+			struct bmm150_settings settings;
+			settings.pwr_mode = BMM150_POWERMODE_NORMAL;
+			res = bmm150SetOpMode(&settings);
+			if (res == BMM150_OK)
+			{
+				settings.preset_mode = BMM150_PRESETMODE_HIGHACCURACY;
+				res = bmm150SetPresetMode(&settings);
+				settings.data_rate = BMM150_DATA_RATE_10HZ;
+				bmm150SetSensorSettings(BMM150_SEL_DATA_RATE, &settings);
+				/*settings.xyz_axes_control = 0;
+				bmm150SetSensorSettings(BMM150_SEL_CONTROL_MEASURE, &settings);*/
+			}
+		}
+	}
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(500);
+    bmm150GetCompassDegree(&compassDegree);
+  }
+  /* USER CODE END UpdateGeo */
 }
 
 /**
