@@ -8,17 +8,14 @@
 #ifndef INC_BMM150_H_
 #define INC_BMM150_H_
 
-typedef enum {
-    BMM150_SUCCESS,
-	BMM150_ERROR,
-	BMM150_TIMEOUT,
-	BMM150_UNKNOWN
-} bmm150_status_t;
-
-#define BMM150_I2C_ADDRESS_CSB_HIGH_SDO_HIGH      UINT8_C(0x13)
-#define BMM150_POWERMODE_NORMAL                   UINT8_C(0x00)
+#include "bmm150_defs.h"
 
 int8_t bmm150Init(I2C_HandleTypeDef *hi2c);
-int8_t bmm150SetOpMode(uint8_t powerMode);
+int8_t bmm150SetOpMode(const struct bmm150_settings *settings);
+int8_t bmm150SetPresetMode(struct bmm150_settings *settings);
+int8_t bmm150SetSensorSettings(uint16_t desiredSettings, const struct bmm150_settings *settings);
+
+int8_t bmm150GetGeomagneticData();
+int8_t bmm150GetCompassDegree(float *compassDegree);
 
 #endif /* INC_BMM150_H_ */

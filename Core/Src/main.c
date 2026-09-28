@@ -70,7 +70,7 @@ DMA_HandleTypeDef hdma_uart4_rx;
 osThreadId_t ultrasonicTaskHandle;
 const osThreadAttr_t ultrasonicTask_attributes = {
   .name = "ultrasonicTask",
-  .stack_size = 256 * 4,
+  .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for motorTask */
@@ -95,13 +95,14 @@ const osThreadAttr_t geoTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
-uint8_t icFlag = 0; 			// Set to 1 when we capture the ultrasonic signal's falling edge
-uint8_t ultraCaptureState = 0; 	// Set to 0 when ready to capture falling edge, 1 for falling edge
+uint8_t icFlag = 0; 				// Set to 1 when we capture the ultrasonic signal's falling edge
+uint8_t ultraCaptureState = 0; 		// Set to 0 when ready to capture falling edge, 1 for falling edge
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
-volatile uint32_t lastDistanceMm; // Last measured distance to obstacle
-int32_t carSpeed[2] = { 0, 0 };	// Speed of the left and right motors
-CarState_t carState = carStopped; // Current state of the car
+volatile uint32_t lastDistanceMm; 	// Last measured distance to obstacle
+volatile int32_t carSpeed[2] = { 0, 0 };	// Speed of the left and right motors
+CarState_t carState = carStopped; 	// Current state of the car
 char carStateLetters[] = "ISFRLvrl";
+float compassDegree;
 
 /* USER CODE END PV */
 
@@ -118,7 +119,7 @@ static void MX_I2C2_Init(void);
 void UpdateUltra(void *argument);
 void UpdateMotor(void *argument);
 void UpdateSerial(void *argument);
-void UpdateGeoSensor(void *argument);
+void UpdateGeo(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -199,7 +200,7 @@ int main(void)
   serialTaskHandle = osThreadNew(UpdateSerial, NULL, &serialTask_attributes);
 
   /* creation of geoTask */
-  geoTaskHandle = osThreadNew(UpdateGeoSensor, NULL, &geoTask_attributes);
+  geoTaskHandle = osThreadNew(UpdateGeo, NULL, &geoTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -797,6 +798,7 @@ void UpdateSerial(void *argument)
 
     uint8_t socketOpen = 0;
 	CarState_t lastState = carInvalid;
+	uint8_t stackSizePrint = 0;
 
 	/* Infinite loop */
 	for(;;)
@@ -804,9 +806,13 @@ void UpdateSerial(void *argument)
 		osDelay(1000);
 
 		// Send state and distance via huart2
-		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c S: %c, D: %lu mm, S: (%li, %li)\r\n",
-				(carState == lastState) ? (int) ' ' : (int)'*', (int)carStateLetters[carState], lastDistanceMm, carSpeed[0], carSpeed[1]);
+		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c S: %c, D: %lu mm, S: (%li, %li), C: %.2f\r\n",
+				(carState == lastState) ? (int) ' ' : (int)'*',
+				(int)carStateLetters[carState],
+				lastDistanceMm, carSpeed[0], carSpeed[1],
+				(double)compassDegree);
 		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
+		lastState = carState;
 
 		// Send status via ESP socket.
 		if (!socketOpen)
@@ -820,34 +826,57 @@ void UpdateSerial(void *argument)
 		}
 		if (socketOpen)
 			socketOpen = espSendSocket((uint8_t *)tx_buffer, len) == ESP_SUCCESS;
+
+		if (stackSizePrint++ % 5 == 0)
+		{
+			len = snprintf(tx_buffer, sizeof(tx_buffer), "Stack: %li, %li, %li, %li\r\n",
+				osThreadGetStackSpace(ultrasonicTaskHandle),
+				osThreadGetStackSpace(motorTaskHandle),
+				osThreadGetStackSpace(serialTaskHandle),
+				osThreadGetStackSpace(geoTaskHandle));
+			HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
+		}
 	}
   /* USER CODE END UpdateSerial */
 }
 
-/* USER CODE BEGIN Header_UpdateGeoSensor */
+/* USER CODE BEGIN Header_UpdateGeo */
 /**
 * @brief Function implementing the geoTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_UpdateGeoSensor */
-void UpdateGeoSensor(void *argument)
+/* USER CODE END Header_UpdateGeo */
+void UpdateGeo(void *argument)
 {
-  /* USER CODE BEGIN UpdateGeoSensor */
+  /* USER CODE BEGIN UpdateGeo */
 	HAL_StatusTypeDef res = HAL_I2C_IsDeviceReady(&hi2c2, BMM150_I2C_ADDRESS_CSB_HIGH_SDO_HIGH << 1, 2, 2000);
 	if (res == HAL_OK)
 	{
-		if (bmm150Init(&hi2c2) == BMM150_SUCCESS)
+		int8_t res = bmm150Init(&hi2c2);
+		if (res == BMM150_OK)
 		{
-			bmm150SetOpMode(BMM150_POWERMODE_NORMAL);
+			struct bmm150_settings settings;
+			settings.pwr_mode = BMM150_POWERMODE_NORMAL;
+			res = bmm150SetOpMode(&settings);
+			if (res == BMM150_OK)
+			{
+				settings.preset_mode = BMM150_PRESETMODE_HIGHACCURACY;
+				res = bmm150SetPresetMode(&settings);
+				settings.data_rate = BMM150_DATA_RATE_10HZ;
+				bmm150SetSensorSettings(BMM150_SEL_DATA_RATE, &settings);
+				/*settings.xyz_axes_control = 0;
+				bmm150SetSensorSettings(BMM150_SEL_CONTROL_MEASURE, &settings);*/
+			}
 		}
 	}
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    osDelay(500);
+    bmm150GetCompassDegree(&compassDegree);
   }
-  /* USER CODE END UpdateGeoSensor */
+  /* USER CODE END UpdateGeo */
 }
 
 /**

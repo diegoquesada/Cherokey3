@@ -24,7 +24,6 @@ def robotServer():
 		sys.exit(1)
 		
 	serverSocket.listen(1)
-	serverSocket.settimeout(60) # Default 1 minute to avoid hanging on bad bind
 	print("Echo server listening on port 9576...")
 
 	try:
@@ -33,39 +32,45 @@ def robotServer():
 				clientSocket, clientAddress = serverSocket.accept()
 				print(f"Connected by {clientAddress}")
 
+				clientSocket.settimeout(30.0)
+
 				while True:		
-					data = clientSocket.recv(1024)
-					if not data:
-						# Client disconnected (EOF)
-						print(f"Client {clientAddress} disconnected.", file=sys.stderr)
+					try:
+						data = clientSocket.recv(1024)
+						if not data:
+							# Client disconnected (EOF)
+							print(f"Client {clientAddress} disconnected.", file=sys.stderr)
+							break
+						else:
+							# Decode and print data
+							try:
+								text = data.decode('utf-8', errors='replace')
+								sys.stdout.write(text)
+								sys.stdout.flush()
+							except AttributeError:
+								# Fallback if decoding fails
+								sys.stdout.write(data.decode('latin-1', errors='replace'))
+								sys.stdout.flush()		
+					except socket.timeout:
+						print("Client socket timeout, waiting for enw connection.", file=sys.stderr)
 						break
-					else:
-						# Decode and print data
-						try:
-							text = data.decode('utf-8', errors='replace')
-							sys.stdout.write(text)
-							sys.stdout.flush()
-						except AttributeError:
-							# Fallback if decoding fails
-							sys.stdout.write(data.decode('latin-1', errors='replace'))
-							sys.stdout.flush()
-						
-			except socket.timeout:
-				continue # Data not ready yet
+
 			except socket.error:
 				print("Socket error during accept.", file=sys.stderr)
-				break
-			except ConnectionResetError:
-				print(f"Cilent {clientAddress} reset connection.", file=sys.stderr)
 				break
 			except Exception as e:
 				print(f"Unhandled exception: {e}", file=sys.stderr)
 				break
+			except ConnectionResetError:
+				print(f"Cilent {clientAddress} reset connection.", file=sys.stderr)
+
+			finally:
+				clientSocket.close()
 			
 	finally:
 		# Cleanup
 		serverSocket.close()
-		print("Client disconnected.")
+		print("Server disconnected.")
 
 if __name__ == "__main__":
 	try:
