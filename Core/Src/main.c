@@ -31,16 +31,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum {
-	carInvalid,
-	carStopped,
-	carForward,
-	carTurningRight,
-	carTurningLeft,
-	carReverse,
-	carReverseRight,
-	carReverseLeft
-} CarState_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -99,9 +90,7 @@ uint8_t icFlag = 0; 				// Set to 1 when we capture the ultrasonic signal's fall
 uint8_t ultraCaptureState = 0; 		// Set to 0 when ready to capture falling edge, 1 for falling edge
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
 volatile uint32_t lastDistanceMm; 	// Last measured distance to obstacle
-volatile int32_t carSpeed[2] = { 0, 0 };	// Speed of the left and right motors
-CarState_t carState = carStopped; 	// Current state of the car
-char carStateLetters[] = "ISFRLvrl";
+char carStateLetters[] = "|>\\^/<";
 float compassDegree;
 
 /* USER CODE END PV */
@@ -741,6 +730,11 @@ void UpdateMotor(void *argument)
 	if (flags & DISTANCE_READY)
 	{
 		distance = (lastDistanceMm / 20) * 20; // Quantize at 2cm
+		//carAutoDrive(distance, compassDegree);
+
+		carDriveCircles();
+
+#if 0
 		if (distance > 1000)
 		{
 			carState = carForward;
@@ -775,6 +769,7 @@ void UpdateMotor(void *argument)
 			carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
 			carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
 		}
+#endif
 	}
   }
   /* USER CODE END UpdateMotor */
@@ -797,7 +792,8 @@ void UpdateSerial(void *argument)
     espStart();
 
     uint8_t socketOpen = 0;
-	CarState_t lastState = carInvalid;
+	CarState_t currentState, lastState = Car_Full_Stop;
+	CarSpeed_t currentSpeed;
 	uint8_t stackSizePrint = 0;
 
 	/* Infinite loop */
@@ -805,14 +801,17 @@ void UpdateSerial(void *argument)
 	{
 		osDelay(1000);
 
+		currentState = carGetAutoState();
+		currentSpeed = carGetSpeed();
+
 		// Send state and distance via huart2
-		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c S: %c, D: %lu mm, S: (%li, %li), C: %.2f\r\n",
-				(carState == lastState) ? (int) ' ' : (int)'*',
-				(int)carStateLetters[carState],
-				lastDistanceMm, carSpeed[0], carSpeed[1],
+		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c  S: %c  D: %4lu mm  S: (%4li, %4li)  B: %5.2f\r\n",
+				(currentState == lastState) ? (int) ' ' : (int)'*',
+				(int)carStateLetters[currentState],
+				lastDistanceMm, currentSpeed.speedRight, currentSpeed.speedLeft,
 				(double)compassDegree);
 		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
-		lastState = carState;
+		lastState = currentState;
 
 		// Send status via ESP socket.
 		if (!socketOpen)

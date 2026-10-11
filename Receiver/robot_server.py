@@ -52,7 +52,7 @@ def robotServer():
 								sys.stdout.write(data.decode('latin-1', errors='replace'))
 								sys.stdout.flush()		
 					except socket.timeout:
-						print("Client socket timeout, waiting for enw connection.", file=sys.stderr)
+						print("Client socket timeout, waiting for new connection.", file=sys.stderr)
 						break
 
 			except socket.error:

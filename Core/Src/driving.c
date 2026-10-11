@@ -21,9 +21,15 @@ extern TIM_HandleTypeDef htim4;
 #define PWM_RAMP_DELAY 25 // Delay between ramp steps, in milliseconds
 #define PWM_MAX_SPEED 2000 // Maximum configured PWM speed
 
+#define MIN(x, y) (((x) > (y)) ? (y) : (x))
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+
 //uint8_t pwmOn = 0;
 uint8_t pwmDirection[2] = { 0, 0 }; // Motor direction, 0:forwards, 1:backwards
 uint32_t pwmDuty[2]  = { 0, 0 }; // Motor duty cycle, 0:stopped, 1999:full tilt
+
+CarState_t _carState = Car_Full_Stop;
+float _carLastBearing = 0.0f;
 
 void carInit()
 {
@@ -224,6 +230,8 @@ void carTurn(uint8_t direction, uint32_t speed)
 		if (pwmDirection[0] != 0 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M2
 		HAL_GPIO_WritePin(PIN_MOTOR1_GPIO_Port, PIN_MOTOR1_Pin, GPIO_PIN_SET);
 		rampUpSingle(0, speed);
+		HAL_GPIO_WritePin(PIN_MOTOR2_GPIO_Port, PIN_MOTOR2_Pin, GPIO_PIN_RESET);
+		rampUpSingle(1, 1200);
 		break;
 	case 1: // backward-left, M1 on
 		if (pwmDirection[0] != 1 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M1
@@ -250,3 +258,71 @@ void carStop()
 	// No changes to the pins.
 }
 
+void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
+{
+	switch (_carState)
+	{
+	case Car_Full_Stop:
+		// Fully stop the car. We should only get here if we are completely blocked.
+		carStop();
+		break;
+	case Car_Drive:
+		if (distanceToObstacle > 500)
+		{
+			uint32_t targetSpeed = 999 + 1000 * (MIN((uint32_t)distanceToObstacle, 1000) - 500) / 500;
+			carAdvance(CAR_FORWARD, targetSpeed);
+		}
+		else
+		{
+			_carState = Car_Stop_To_Turn;
+		}
+		break;
+	case Car_Stop_To_Turn:
+		carStop();
+		_carLastBearing = compassBearing;
+		_carState = Car_Turn;
+		break;
+	case Car_Turn:
+		// If bearing is same as before
+		//   Set PWM to start turning left or right (random)
+		//   Sleep for two seconds
+		// Else, if distance to obstacle > 500
+		//   Set state to Car_Drive
+		// Else, if we have turned less than 90 degrees
+		//   Sleep for two seconds
+		// Else
+		//   Set state to Car_Stop_To_Reverse
+		break;
+	case Car_Stop_To_Reverse:
+		// Stop the car
+		// Set state to Car_Reverse
+		break;
+	case Car_Reverse:
+		// Set PWM to reverse
+		// Sleep two seconds
+		// ???
+		break;
+	}
+}
+
+void carDriveCircles()
+{
+	if (_carState != Car_Turn)
+	{
+		_carState = Car_Turn;
+		carTurn(0, 1800);
+	}
+}
+
+CarState_t carGetAutoState()
+{
+	return _carState;
+}
+
+CarSpeed_t carGetSpeed()
+{
+	CarSpeed_t speed;
+	speed.speedLeft = pwmDuty[1];
+	speed.speedRight = pwmDuty[0];
+	return speed;
+}
