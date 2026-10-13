@@ -336,7 +336,7 @@ esp_status_t espOpenSocket()
 	char espBuffer[64];
 	const char tcp_cmd[] = "AT+CIPSTART=\"TCP\",\"%s\",9576\r\n";
 	snprintf(espBuffer, sizeof(espBuffer), tcp_cmd, SOCKET_IP);
-	esp_status_t retStatus = espSendSync(espBuffer, 200, 0);
+	esp_status_t retStatus = espSendSync((const uint8_t *)espBuffer, 200, 0);
 	if (retStatus == ESP_SUCCESS)
 	{
 		socketOpen = 1;

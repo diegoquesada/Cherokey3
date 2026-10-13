@@ -659,52 +659,61 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 void UpdateUltra(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  //char buf[20];
   /* Infinite loop */
   for(;;)
   {
-	  // Ensure TRIG is low before sending pulse.
-	  HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
-	  usDelay(3);
+	uint32_t sumDistance = 0;
+	uint8_t validSamples = 0;
 
-	  // Send a 10us pulse to TRIG.
-	  HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_SET);
-	  usDelay(10);
-	  HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
+	for (int i = 0; i < 3; i++)
+	{
+		// Ensure TRIG is low before sending pulse.
+		HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
+		usDelay(3);
 
-	  // Start IC timer.
-	  HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
+		// Send a 10us pulse to TRIG.
+		HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_SET);
+		usDelay(10);
+		HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
 
-	  // Wait until we have captured the pulse bouncing back, or timeout.
-	  uint32_t startTick = HAL_GetTick();
-	  do {
-		  if (icFlag) break;
-	  } while ((HAL_GetTick() - startTick) < 500);
+		// Start IC timer.
+		HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
 
-	  icFlag = 0;
-	  HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
+		// Wait until we have captured the pulse bouncing back, or timeout.
+		uint32_t startTick = HAL_GetTick();
+		do {
+			if (icFlag) break;
+		} while ((HAL_GetTick() - startTick) < 500);
 
-	  // Calculate distance in mm.
-	  uint32_t ultraDistance = 0;
-	  if (ultraFallingTime > ultraRisingTime) {
-		  ultraDistance = (ultraFallingTime - ultraRisingTime) * 100 / 583;
-	  }
-	  else {
-		  ultraDistance = 0;
-	  }
+		icFlag = 0;
+		HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
 
-	  // Quantize to 20mm. This avoid constant speed adjustments due to small moments.
-	  if ((ultraDistance / 20 * 20) != lastDistanceMm)
-	  {
-		  //osMessageQueuePut(ultraQueueHandle, &ultraDistance, 0, 0);
-		  lastDistanceMm = ultraDistance / 20 * 20;
-		  osThreadFlagsSet(motorTaskHandle, DISTANCE_READY);
-	  }
+		// Calculate distance in mm.
+		if (ultraFallingTime > ultraRisingTime)
+		{
+			uint32_t dist = (ultraFallingTime - ultraRisingTime) * 100 / 583;
+			sumDistance += dist;
+			validSamples++;
+		}
 
-	  /*snprintf(buf, 20, "Distance: %i\r\n", (int)ultraDistance);
-	  HAL_UART_Transmit_IT(&huart2, (uint8_t *)buf, strlen(buf)+1);*/
+		// Reasonable interval between samples to avoid ultrasonic echoes interfering
+		osDelay(30); // CL: Added delay between samples for HC-SR04 stability
+	}
 
-	  osDelay(500);
+	uint32_t ultraDistance = 0;
+	if (validSamples > 0)
+	{
+		ultraDistance = sumDistance / validSamples; // CL: Use average of samples
+	}
+
+	// Quantize to 20mm. This avoid constant speed adjustments due to small movements.
+	if ((ultraDistance / 20 * 20) != lastDistanceMm)
+	{
+		lastDistanceMm = ultraDistance / 20 * 20;
+		osThreadFlagsSet(motorTaskHandle, DISTANCE_READY);
+	}
+
+	osDelay(500);
   }
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
@@ -730,9 +739,9 @@ void UpdateMotor(void *argument)
 	if (flags & DISTANCE_READY)
 	{
 		distance = (lastDistanceMm / 20) * 20; // Quantize at 2cm
-		//carAutoDrive(distance, compassDegree);
+		carAutoDrive(distance, compassDegree);
 
-		carDriveCircles();
+		//carDriveCircles();
 
 #if 0
 		if (distance > 1000)

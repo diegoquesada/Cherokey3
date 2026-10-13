@@ -12,6 +12,7 @@
 
 #include "stm32f3xx_hal.h"
 #include "cmsis_os.h"
+#include <stdlib.h>
 #include "main.h"
 #include "driving.h"
 
@@ -28,7 +29,7 @@ extern TIM_HandleTypeDef htim4;
 uint8_t pwmDirection[2] = { 0, 0 }; // Motor direction, 0:forwards, 1:backwards
 uint32_t pwmDuty[2]  = { 0, 0 }; // Motor duty cycle, 0:stopped, 1999:full tilt
 
-CarState_t _carState = Car_Full_Stop;
+CarState_t _carState = Car_Drive;
 float _carLastBearing = 0.0f;
 
 void carInit()
@@ -230,8 +231,8 @@ void carTurn(uint8_t direction, uint32_t speed)
 		if (pwmDirection[0] != 0 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M2
 		HAL_GPIO_WritePin(PIN_MOTOR1_GPIO_Port, PIN_MOTOR1_Pin, GPIO_PIN_SET);
 		rampUpSingle(0, speed);
-		HAL_GPIO_WritePin(PIN_MOTOR2_GPIO_Port, PIN_MOTOR2_Pin, GPIO_PIN_RESET);
-		rampUpSingle(1, 1200);
+		/*HAL_GPIO_WritePin(PIN_MOTOR2_GPIO_Port, PIN_MOTOR2_Pin, GPIO_PIN_RESET);
+		rampUpSingle(1, 1200);*/
 		break;
 	case 1: // backward-left, M1 on
 		if (pwmDirection[0] != 1 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M1
@@ -283,24 +284,39 @@ void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
 		_carState = Car_Turn;
 		break;
 	case Car_Turn:
-		// If bearing is same as before
-		//   Set PWM to start turning left or right (random)
-		//   Sleep for two seconds
-		// Else, if distance to obstacle > 500
-		//   Set state to Car_Drive
-		// Else, if we have turned less than 90 degrees
-		//   Sleep for two seconds
-		// Else
-		//   Set state to Car_Stop_To_Reverse
+		if (compassBearing >= _carLastBearing - 5.0f && compassBearing < _carLastBearing + 5.0f)
+		{
+			// If bearing has not changed since we entered state, then start turning.
+			if (rand() % 2 == 0)
+				carTurn(0, CAR_FULL_SPEED);
+			else
+				carTurn(2, CAR_FULL_SPEED);
+			osDelay(1000);
+		}
+		else if (distanceToObstacle > 500)
+		{
+			// If we have cleared the obstacle, then start driving forward.
+			_carState = Car_Drive;
+		}
+		else if (abs((int)_carLastBearing - (int)compassBearing) < 90)
+		{
+			// If we have not cleared the obstacle, and have turned less than 180 degrees, keep turning.
+			osDelay(1000);
+		}
+		else
+		{
+			// Otherwise, we are in a corner. Stop and reverse.
+			_carState = Car_Stop_To_Reverse;
+		}
 		break;
 	case Car_Stop_To_Reverse:
-		// Stop the car
-		// Set state to Car_Reverse
+		carStop();
+		_carState = Car_Reverse;
 		break;
 	case Car_Reverse:
-		// Set PWM to reverse
-		// Sleep two seconds
-		// ???
+		carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
+		osDelay(2000);
+		_carState = Car_Drive;
 		break;
 	}
 }
