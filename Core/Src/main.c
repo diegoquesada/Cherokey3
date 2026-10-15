@@ -38,7 +38,7 @@
 /* USER CODE BEGIN PD */
 #define DISTANCE_READY (1U << 0)
 #define BUTTON_PRESS_FLAG (1U << 1)
-#define CHEROKEY_VERSION "Cherokey3 v0.3"
+#define CHEROKEY_VERSION "Cherokey3 v0.4"
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -90,7 +90,7 @@ uint8_t icFlag = 0; 				// Set to 1 when we capture the ultrasonic signal's fall
 uint8_t ultraCaptureState = 0; 		// Set to 0 when ready to capture falling edge, 1 for falling edge
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
 volatile uint32_t lastDistanceMm; 	// Last measured distance to obstacle
-char carStateLetters[] = "|>\\^/<";
+const char carStateLetters[] = "|>\\^/<";
 float compassDegree;
 
 /* USER CODE END PV */
@@ -697,7 +697,7 @@ void UpdateUltra(void *argument)
 		}
 
 		// Reasonable interval between samples to avoid ultrasonic echoes interfering
-		osDelay(30); // CL: Added delay between samples for HC-SR04 stability
+		osDelay(30);
 	}
 
 	uint32_t ultraDistance = 0;
@@ -706,14 +706,14 @@ void UpdateUltra(void *argument)
 		ultraDistance = sumDistance / validSamples; // CL: Use average of samples
 	}
 
-	// Quantize to 20mm. This avoid constant speed adjustments due to small movements.
+	// Quantize to 20mm in order to avoid constant speed adjustments due to small movements.
 	if ((ultraDistance / 20 * 20) != lastDistanceMm)
 	{
 		lastDistanceMm = ultraDistance / 20 * 20;
 		osThreadFlagsSet(motorTaskHandle, DISTANCE_READY);
 	}
 
-	osDelay(500);
+	osDelay(250);
   }
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
@@ -731,6 +731,7 @@ void UpdateMotor(void *argument)
   /* USER CODE BEGIN UpdateMotor */
 	uint32_t distance;
 	carInit();
+	osDelay(2000); // Give the serial some time to initialize.
   /* Infinite loop */
   for(;;)
   {
@@ -808,7 +809,7 @@ void UpdateSerial(void *argument)
 	/* Infinite loop */
 	for(;;)
 	{
-		osDelay(1000);
+		osDelay(250);
 
 		currentState = carGetAutoState();
 		currentSpeed = carGetSpeed();

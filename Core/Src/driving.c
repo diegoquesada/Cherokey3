@@ -193,8 +193,8 @@ void carAdvance(uint8_t direction, uint32_t speed)
 		return;
 	if (speed > PWM_MAX_SPEED) // 2000 is valid as a maximum value
 		return;
-	if (pwmDirection[0] == direction && pwmDirection[0] == pwmDirection[1] && // Already at target
-		pwmDuty[0] == speed && pwmDuty[0] == pwmDuty[1])
+	if (pwmDirection[0] == direction && pwmDirection[1] == pwmDirection[1] && // Already at target
+		pwmDuty[0] == speed && pwmDuty[1] == speed)
 	{
 		return;
 	}
@@ -228,7 +228,7 @@ void carTurn(uint8_t direction, uint32_t speed)
 	switch (direction)
 	{
 	case 0: // forward-left, M1 on
-		if (pwmDirection[0] != 0 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M2
+		if (pwmDirection[0] != 0 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M1
 		HAL_GPIO_WritePin(PIN_MOTOR1_GPIO_Port, PIN_MOTOR1_Pin, GPIO_PIN_SET);
 		rampUpSingle(0, speed);
 		/*HAL_GPIO_WritePin(PIN_MOTOR2_GPIO_Port, PIN_MOTOR2_Pin, GPIO_PIN_RESET);
@@ -245,7 +245,7 @@ void carTurn(uint8_t direction, uint32_t speed)
 		rampUpSingle(1, speed);
 		break;
 	case 3: // backward-right, M2 on
-		if (pwmDirection[1] != 1 && pwmDuty[1] != 0) rampDownSingle(1, 0); // If changing direction, ramp down M1
+		if (pwmDirection[1] != 1 && pwmDuty[1] != 0) rampDownSingle(1, 0); // If changing direction, ramp down M2
 		HAL_GPIO_WritePin(PIN_MOTOR2_GPIO_Port, PIN_MOTOR2_Pin, GPIO_PIN_RESET);
 		rampUpSingle(1, speed);
 		break;
@@ -281,26 +281,27 @@ void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
 	case Car_Stop_To_Turn:
 		carStop();
 		_carLastBearing = compassBearing;
+
 		_carState = Car_Turn;
+		if (rand() % 2 == 0)
+			carTurn(0, CAR_FULL_SPEED);
+		else
+			carTurn(2, CAR_FULL_SPEED);
 		break;
 	case Car_Turn:
-		if (compassBearing >= _carLastBearing - 5.0f && compassBearing < _carLastBearing + 5.0f)
-		{
-			// If bearing has not changed since we entered state, then start turning.
-			if (rand() % 2 == 0)
-				carTurn(0, CAR_FULL_SPEED);
-			else
-				carTurn(2, CAR_FULL_SPEED);
-			osDelay(1000);
-		}
-		else if (distanceToObstacle > 500)
+		if (distanceToObstacle > 500)
 		{
 			// If we have cleared the obstacle, then start driving forward.
 			_carState = Car_Drive;
 		}
+		else if (distanceToObstacle < 200)
+		{
+			// We've turned into an obstacle right in front, back up.
+			_carState = Car_Stop_To_Reverse;
+		}
 		else if (abs((int)_carLastBearing - (int)compassBearing) < 90)
 		{
-			// If we have not cleared the obstacle, and have turned less than 180 degrees, keep turning.
+			// If we have not cleared the obstacle, but have turned less than 90 degrees, keep turning.
 			osDelay(1000);
 		}
 		else

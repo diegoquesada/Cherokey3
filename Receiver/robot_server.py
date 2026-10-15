@@ -39,7 +39,7 @@ def robotServer():
 						data = clientSocket.recv(1024)
 						if not data:
 							# Client disconnected (EOF)
-							print(f"Client {clientAddress} disconnected.", file=sys.stderr)
+							print(f"\nClient {clientAddress} disconnected.", file=sys.stderr)
 							break
 						else:
 							# Decode and print data
@@ -52,17 +52,17 @@ def robotServer():
 								sys.stdout.write(data.decode('latin-1', errors='replace'))
 								sys.stdout.flush()		
 					except socket.timeout:
-						print("Client socket timeout, waiting for new connection.", file=sys.stderr)
+						print("\nClient socket timeout, waiting for new connection.", file=sys.stderr)
 						break
 
 			except socket.error:
-				print("Socket error during accept.", file=sys.stderr)
+				print("\nSocket error during accept.", file=sys.stderr)
 				break
 			except Exception as e:
-				print(f"Unhandled exception: {e}", file=sys.stderr)
+				print(f"\nUnhandled exception: {e}", file=sys.stderr)
 				break
 			except ConnectionResetError:
-				print(f"Cilent {clientAddress} reset connection.", file=sys.stderr)
+				print(f"\nClient {clientAddress} reset connection.", file=sys.stderr)
 
 			finally:
 				clientSocket.close()
