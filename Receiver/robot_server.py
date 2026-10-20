@@ -21,7 +21,7 @@ class TelemetryData:
     distance: int
     speed_left: int
     speed_right: int
-    direction: int
+    direction: float
 
 def parse_telemetry(line: str) -> Optional[TelemetryData]:
     """
@@ -47,13 +47,14 @@ def parse_telemetry(line: str) -> Optional[TelemetryData]:
             distance=int(parts[0]),
             speed_left=int(parts[1]),
             speed_right=int(parts[2]),
-            direction=int(parts[3])
+            direction=float(parts[3])
         )
     except (ValueError, IndexError):
+        print(f"Value or Index error parsing line {line}")
         return None
     except Exception as e:
         # Handle any other unexpected format mismatch errors
-        print(f"Unexpected error parsing line '{line}': {e}")
+        print(f"Error parsing line '{line}': {e}")
         return None
 
 class TelemetryWorker(QtCore.QThread):
@@ -151,21 +152,21 @@ class CompassWidget(QtWidgets.QWidget):
         painter.drawLine(0, int(-radius + 20), 10, int(-radius + 30))
         painter.restore()
 
-        # Draw State Arrow in the center
-        # |: stopped, >: forward, \: stop and will turn, ^: turning, /: stop and will reverse, <: reversing
-        state_map = {
-            '>': (0, -30),  # Forward (Up)
-            '<': (0, 30),   # Reverse (Down)
-            '^': (-30, 0),  # Turning (Left/Right - map to horizontal)
-            '\\': (-15, -15),
-            '/': (15, -15),
-            '|': (0, 0)
-        }
-
-        # We use a simple text representation or a smaller arrow for state
+        state_text = {
+            '|': "Invalid",
+            '>': "Drive",
+            '\\': "Stop",
+            '^': "Turn",
+            '/': "Stop",
+            '<': "Reverse"
+            }
+        
+        state_rect = QtCore.QRect(rect.x(), rect.y(), rect.width(), int(rect.height() / 2))
         painter.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.darkGreen, 5))
         painter.setFont(QtGui.QFont("Arial", 24, QtGui.QFont.Weight.Bold))
-        painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignCenter, self.state)
+        painter.drawText(state_rect,
+                         QtCore.Qt.AlignmentFlag.AlignCenter | QtCore.Qt.AlignmentFlag.AlignVCenter,
+                         state_text[self.state])
 
 class TelemetryGUI(QtWidgets.QMainWindow):
     """Main Window for Robot Telemetry."""

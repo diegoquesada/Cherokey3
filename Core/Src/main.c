@@ -815,7 +815,7 @@ void UpdateSerial(void *argument)
 		currentSpeed = carGetSpeed();
 
 		// Send state and distance via huart2
-		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c  S: %c  D: %4lu mm  S: (%4li, %4li)  B: %5.2f\r\n",
+		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c %c %lu %li %li %.2f\r\n",
 				(currentState == lastState) ? (int) ' ' : (int)'*',
 				(int)carStateLetters[currentState],
 				lastDistanceMm, currentSpeed.speedRight, currentSpeed.speedLeft,
