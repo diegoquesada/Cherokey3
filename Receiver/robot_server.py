@@ -138,7 +138,7 @@ class CompassWidget(QtWidgets.QWidget):
         # Draw North indicator
         painter.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.red, 2))
         painter.drawLine(int(center.x()), int(center.y() - radius), int(center.x()), int(center.y() - radius - 10))
-        painter.drawText(rect.adjusted(0, 0, 0, 0), QtCore.Qt.AlignmentFlag.AlignCenter | QtCore.Qt.AlignmentFlag.AlignTop, "N")
+        painter.drawText(rect.adjusted(0, 0, 0, -rect.height() + 10), QtCore.Qt.AlignmentFlag.AlignCenter | QtCore.Qt.AlignmentFlag.AlignTop, "N")
 
         # Draw Direction Arrow (Robot Heading)
         painter.save()
@@ -153,18 +153,17 @@ class CompassWidget(QtWidgets.QWidget):
         painter.restore()
 
         state_text = {
-            '|': "Invalid",
+            '|': "***",
             '>': "Drive",
             '\\': "Stop",
             '^': "Turn",
             '/': "Stop",
             '<': "Reverse"
-            }
+        }
         
-        state_rect = QtCore.QRect(rect.x(), rect.y(), rect.width(), int(rect.height() / 2))
         painter.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.darkGreen, 5))
         painter.setFont(QtGui.QFont("Arial", 24, QtGui.QFont.Weight.Bold))
-        painter.drawText(state_rect,
+        painter.drawText(rect.adjusted(0, 0, 0, -(int(rect.height() / 2))),
                          QtCore.Qt.AlignmentFlag.AlignCenter | QtCore.Qt.AlignmentFlag.AlignVCenter,
                          state_text[self.state])
 
@@ -207,7 +206,26 @@ class TelemetryGUI(QtWidgets.QMainWindow):
         self.log_window.setReadOnly(True)
         self.log_window.setMinimumHeight(150)
         self.log_window.setFont(QtGui.QFont("Consolas", 10))
-        layout.addWidget(self.log_window)
+
+        # Log window with its action buttons on the right
+        log_layout = QtWidgets.QHBoxLayout()
+
+        btn_clear = QtWidgets.QPushButton("Clear")
+        btn_clear.setToolTip("Clear the telemetry log")
+        btn_clear.clicked.connect(self.clear_log)
+
+        btn_save = QtWidgets.QPushButton("Save")
+        btn_save.setToolTip("Save the telemetry log to a file")
+        btn_save.clicked.connect(self.save_log)
+
+        button_layout = QtWidgets.QVBoxLayout()
+        button_layout.addWidget(btn_clear)
+        button_layout.addWidget(btn_save)
+        button_layout.addStretch()
+
+        log_layout.addWidget(self.log_window, stretch=1)
+        log_layout.addLayout(button_layout)
+        layout.addLayout(log_layout)
 
         # Status Bar
         self.statusBar().showMessage("Initializing...")
@@ -225,12 +243,38 @@ class TelemetryGUI(QtWidgets.QMainWindow):
         self.lbl_dist.setText(f"Distance: {data.distance} mm")
 
         # Append raw line to log window
-        self.log_window.appendPlainText(raw_line)
+        self.log_window.appendPlainText(raw_line.removesuffix('\r'))
         # Auto-scroll to bottom
         self.log_window.verticalScrollBar().setValue(self.log_window.verticalScrollBar().maximum())
 
     def on_status_update(self, message):
         self.statusBar().showMessage(message)
+
+    def clear_log(self):
+        """Clears the contents of the telemetry log."""
+        self.log_window.clear()
+        self.statusBar().showMessage("Log cleared", 3000)
+
+    def save_log(self):
+        """Saves the contents of the telemetry log to a file."""
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save Telemetry Log",
+            "telemetry_log.txt",
+            "Text files (*.txt);;All files (*)"
+        )
+        if not filename:
+            return
+
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(self.log_window.toPlainText())
+        except OSError as e:
+            QtWidgets.QMessageBox.critical(self, "Save Error", f"Could not save file:\n{e}")
+            self.statusBar().showMessage(f"Error saving log: {e}", 5000)
+            return
+
+        self.statusBar().showMessage(f"Log saved to {filename}", 5000)
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)

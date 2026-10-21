@@ -27,8 +27,8 @@ typedef enum {
 } CarState_t;
 
 typedef struct {
-	uint32_t speedLeft;
-	uint32_t speedRight;
+	int32_t speedLeft;
+	int32_t speedRight;
 } CarSpeed_t;
 
 /// Initialize the driving state.
@@ -78,5 +78,7 @@ void carDriveCircles();
 CarState_t carGetAutoState();
 
 CarSpeed_t carGetSpeed();
+
+uint32_t carGetControlCycleTime();
 
 #endif /* DRIVING_H_ */

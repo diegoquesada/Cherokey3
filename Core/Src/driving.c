@@ -31,6 +31,7 @@ uint32_t pwmDuty[2]  = { 0, 0 }; // Motor duty cycle, 0:stopped, 1999:full tilt
 
 CarState_t _carState = Car_Drive;
 float _carLastBearing = 0.0f;
+uint32_t _controlLastTick = 0, _controlCycleTime = 0;
 
 void carInit()
 {
@@ -268,9 +269,10 @@ void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
 		carStop();
 		break;
 	case Car_Drive:
-		if (distanceToObstacle > 500)
+		if (distanceToObstacle > 400)
 		{
-			uint32_t targetSpeed = 999 + 1000 * (MIN((uint32_t)distanceToObstacle, 1000) - 500) / 500;
+			// Map distance to speed linearly: (400 mm - 1000 mm or more) --> (999 - 2000)
+			uint32_t targetSpeed = 999 + 1000 * (MIN((uint32_t)distanceToObstacle, 1000) - 400) / 600;
 			carAdvance(CAR_FORWARD, targetSpeed);
 		}
 		else
@@ -299,10 +301,10 @@ void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
 			// We've turned into an obstacle right in front, back up.
 			_carState = Car_Stop_To_Reverse;
 		}
-		else if (abs((int)_carLastBearing - (int)compassBearing) < 90)
+		else if (abs((int)_carLastBearing - (int)compassBearing) < 120)
 		{
 			// If we have not cleared the obstacle, but have turned less than 90 degrees, keep turning.
-			osDelay(1000);
+			osDelay(500);
 		}
 		else
 		{
@@ -320,6 +322,9 @@ void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
 		_carState = Car_Drive;
 		break;
 	}
+
+	_controlCycleTime = HAL_GetTick() - _controlLastTick;
+	_controlLastTick = HAL_GetTick();
 }
 
 void carDriveCircles()
@@ -339,7 +344,12 @@ CarState_t carGetAutoState()
 CarSpeed_t carGetSpeed()
 {
 	CarSpeed_t speed;
-	speed.speedLeft = pwmDuty[1];
-	speed.speedRight = pwmDuty[0];
+	speed.speedLeft  = pwmDirection[1] == CAR_FORWARD ? pwmDuty[1] : -pwmDuty[1];
+	speed.speedRight = pwmDirection[0] == CAR_FORWARD ? pwmDuty[0] : -pwmDuty[0];
 	return speed;
+}
+
+uint32_t carGetControlCycleTime()
+{
+	return _controlCycleTime;
 }
