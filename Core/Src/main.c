@@ -31,23 +31,14 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum {
-	carInvalid,
-	carStopped,
-	carForward,
-	carTurningRight,
-	carTurningLeft,
-	carReverse,
-	carReverseRight,
-	carReverseLeft
-} CarState_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define DISTANCE_READY (1U << 0)
 #define BUTTON_PRESS_FLAG (1U << 1)
-#define CHEROKEY_VERSION "Cherokey3 v0.3"
+#define CHEROKEY_VERSION "Cherokey3 v0.4"
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -99,9 +90,7 @@ uint8_t icFlag = 0; 				// Set to 1 when we capture the ultrasonic signal's fall
 uint8_t ultraCaptureState = 0; 		// Set to 0 when ready to capture falling edge, 1 for falling edge
 uint32_t ultraRisingTime = 0, ultraFallingTime = 0; // Timing for rising and falling edge
 volatile uint32_t lastDistanceMm; 	// Last measured distance to obstacle
-volatile int32_t carSpeed[2] = { 0, 0 };	// Speed of the left and right motors
-CarState_t carState = carStopped; 	// Current state of the car
-char carStateLetters[] = "ISFRLvrl";
+const char carStateLetters[] = "|>\\^/<";
 float compassDegree;
 
 /* USER CODE END PV */
@@ -670,52 +659,61 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 void UpdateUltra(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  //char buf[20];
   /* Infinite loop */
   for(;;)
   {
-	  // Ensure TRIG is low before sending pulse.
-	  HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
-	  usDelay(3);
+	uint32_t sumDistance = 0;
+	uint8_t validSamples = 0;
 
-	  // Send a 10us pulse to TRIG.
-	  HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_SET);
-	  usDelay(10);
-	  HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
+	for (int i = 0; i < 3; i++)
+	{
+		// Ensure TRIG is low before sending pulse.
+		HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
+		usDelay(3);
 
-	  // Start IC timer.
-	  HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
+		// Send a 10us pulse to TRIG.
+		HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_SET);
+		usDelay(10);
+		HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
 
-	  // Wait until we have captured the pulse bouncing back, or timeout.
-	  uint32_t startTick = HAL_GetTick();
-	  do {
-		  if (icFlag) break;
-	  } while ((HAL_GetTick() - startTick) < 500);
+		// Start IC timer.
+		HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
 
-	  icFlag = 0;
-	  HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
+		// Wait until we have captured the pulse bouncing back, or timeout.
+		uint32_t startTick = HAL_GetTick();
+		do {
+			if (icFlag) break;
+		} while ((HAL_GetTick() - startTick) < 500);
 
-	  // Calculate distance in mm.
-	  uint32_t ultraDistance = 0;
-	  if (ultraFallingTime > ultraRisingTime) {
-		  ultraDistance = (ultraFallingTime - ultraRisingTime) * 100 / 583;
-	  }
-	  else {
-		  ultraDistance = 0;
-	  }
+		icFlag = 0;
+		HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
 
-	  // Quantize to 20mm. This avoid constant speed adjustments due to small moments.
-	  if ((ultraDistance / 20 * 20) != lastDistanceMm)
-	  {
-		  //osMessageQueuePut(ultraQueueHandle, &ultraDistance, 0, 0);
-		  lastDistanceMm = ultraDistance / 20 * 20;
-		  osThreadFlagsSet(motorTaskHandle, DISTANCE_READY);
-	  }
+		// Calculate distance in mm.
+		if (ultraFallingTime > ultraRisingTime)
+		{
+			uint32_t dist = (ultraFallingTime - ultraRisingTime) * 100 / 583;
+			sumDistance += dist;
+			validSamples++;
+		}
 
-	  /*snprintf(buf, 20, "Distance: %i\r\n", (int)ultraDistance);
-	  HAL_UART_Transmit_IT(&huart2, (uint8_t *)buf, strlen(buf)+1);*/
+		// Reasonable interval between samples to avoid ultrasonic echoes interfering
+		osDelay(30);
+	}
 
-	  osDelay(500);
+	uint32_t ultraDistance = 0;
+	if (validSamples > 0)
+	{
+		ultraDistance = sumDistance / validSamples; // CL: Use average of samples
+	}
+
+	// Quantize to 20mm in order to avoid constant speed adjustments due to small movements.
+	if ((ultraDistance / 20 * 20) != lastDistanceMm)
+	{
+		lastDistanceMm = ultraDistance / 20 * 20;
+		osThreadFlagsSet(motorTaskHandle, DISTANCE_READY);
+	}
+
+	osDelay(250);
   }
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
@@ -733,6 +731,7 @@ void UpdateMotor(void *argument)
   /* USER CODE BEGIN UpdateMotor */
 	uint32_t distance;
 	carInit();
+	osDelay(2000); // Give the serial some time to initialize.
   /* Infinite loop */
   for(;;)
   {
@@ -741,6 +740,11 @@ void UpdateMotor(void *argument)
 	if (flags & DISTANCE_READY)
 	{
 		distance = (lastDistanceMm / 20) * 20; // Quantize at 2cm
+		carAutoDrive(distance, compassDegree);
+
+		//carDriveCircles();
+
+#if 0
 		if (distance > 1000)
 		{
 			carState = carForward;
@@ -775,6 +779,7 @@ void UpdateMotor(void *argument)
 			carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
 			carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
 		}
+#endif
 	}
   }
   /* USER CODE END UpdateMotor */
@@ -797,22 +802,26 @@ void UpdateSerial(void *argument)
     espStart();
 
     uint8_t socketOpen = 0;
-	CarState_t lastState = carInvalid;
+	CarState_t currentState, lastState = Car_Full_Stop;
+	CarSpeed_t currentSpeed;
 	uint8_t stackSizePrint = 0;
 
 	/* Infinite loop */
 	for(;;)
 	{
-		osDelay(1000);
+		osDelay(250);
+
+		currentState = carGetAutoState();
+		currentSpeed = carGetSpeed();
 
 		// Send state and distance via huart2
-		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c S: %c, D: %lu mm, S: (%li, %li), C: %.2f\r\n",
-				(carState == lastState) ? (int) ' ' : (int)'*',
-				(int)carStateLetters[carState],
-				lastDistanceMm, carSpeed[0], carSpeed[1],
+		len = snprintf(tx_buffer, sizeof(tx_buffer), "%c %c %lu %li %li %.2f\r\n",
+				(currentState == lastState) ? (int) ' ' : (int)'*',
+				(int)carStateLetters[currentState],
+				lastDistanceMm, currentSpeed.speedRight, currentSpeed.speedLeft,
 				(double)compassDegree);
 		HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, (uint16_t)len, 100);
-		lastState = carState;
+		lastState = currentState;
 
 		// Send status via ESP socket.
 		if (!socketOpen)

@@ -206,8 +206,8 @@ esp_status_t espStart()
 	if (espSendSync(querymac_cmd) != ESP_SUCCESS)
 		return ESP_ERROR;
 
-	const char connect_cmd[] = "AT+CWJAP=\"Delphi\",\"%s\"\r\n";
-	snprintf((char *)uartTxBuffer, sizeof(uartTxBuffer), connect_cmd, WIFI_PASSWORD);
+	const char connect_cmd[] = "AT+CWJAP=\"%s\",\"%s\"\r\n";
+	snprintf((char *)uartTxBuffer, sizeof(uartTxBuffer), connect_cmd, WIFI_SSID, WIFI_PASSWORD);
 	espSendSync(uartTxBuffer);*/
 
 	const uint8_t queryip_cmd[] = "AT+CIPSTA?\r\n";
@@ -333,17 +333,18 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 esp_status_t espOpenSocket()
 {
-	const uint8_t tcp_cmd[] = "AT+CIPSTART=\"TCP\",\"192.168.1.232\",9576\r\n";
-	esp_status_t retStatus = espSendSync(tcp_cmd, 200, 0);
+	char espBuffer[64];
+	const char tcp_cmd[] = "AT+CIPSTART=\"TCP\",\"%s\",9576\r\n";
+	snprintf(espBuffer, sizeof(espBuffer), tcp_cmd, SOCKET_IP);
+	esp_status_t retStatus = espSendSync((const uint8_t *)espBuffer, 200, 0);
 	if (retStatus == ESP_SUCCESS)
 	{
 		socketOpen = 1;
 	}
 	else
 	{
-		char errorBuffer[64];
-		snprintf(errorBuffer, sizeof(errorBuffer), "Socket: UART error %u\r\n", (unsigned int)retStatus);
-		HAL_UART_Transmit(_huartEcho, (const uint8_t *)errorBuffer, strlen(errorBuffer), 100);
+		snprintf(espBuffer, sizeof(espBuffer), "Socket: UART error %u\r\n", (unsigned int)retStatus);
+		HAL_UART_Transmit(_huartEcho, (const uint8_t *)espBuffer, strlen(espBuffer), 100);
 	}
 
 	return retStatus;

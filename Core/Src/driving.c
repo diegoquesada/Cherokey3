@@ -12,6 +12,7 @@
 
 #include "stm32f3xx_hal.h"
 #include "cmsis_os.h"
+#include <stdlib.h>
 #include "main.h"
 #include "driving.h"
 
@@ -21,9 +22,16 @@ extern TIM_HandleTypeDef htim4;
 #define PWM_RAMP_DELAY 25 // Delay between ramp steps, in milliseconds
 #define PWM_MAX_SPEED 2000 // Maximum configured PWM speed
 
+#define MIN(x, y) (((x) > (y)) ? (y) : (x))
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+
 //uint8_t pwmOn = 0;
 uint8_t pwmDirection[2] = { 0, 0 }; // Motor direction, 0:forwards, 1:backwards
 uint32_t pwmDuty[2]  = { 0, 0 }; // Motor duty cycle, 0:stopped, 1999:full tilt
+
+CarState_t _carState = Car_Drive;
+float _carLastBearing = 0.0f;
+uint32_t _controlLastTick = 0, _controlCycleTime = 0;
 
 void carInit()
 {
@@ -186,8 +194,8 @@ void carAdvance(uint8_t direction, uint32_t speed)
 		return;
 	if (speed > PWM_MAX_SPEED) // 2000 is valid as a maximum value
 		return;
-	if (pwmDirection[0] == direction && pwmDirection[0] == pwmDirection[1] && // Already at target
-		pwmDuty[0] == speed && pwmDuty[0] == pwmDuty[1])
+	if (pwmDirection[0] == direction && pwmDirection[1] == pwmDirection[1] && // Already at target
+		pwmDuty[0] == speed && pwmDuty[1] == speed)
 	{
 		return;
 	}
@@ -221,9 +229,11 @@ void carTurn(uint8_t direction, uint32_t speed)
 	switch (direction)
 	{
 	case 0: // forward-left, M1 on
-		if (pwmDirection[0] != 0 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M2
+		if (pwmDirection[0] != 0 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M1
 		HAL_GPIO_WritePin(PIN_MOTOR1_GPIO_Port, PIN_MOTOR1_Pin, GPIO_PIN_SET);
 		rampUpSingle(0, speed);
+		/*HAL_GPIO_WritePin(PIN_MOTOR2_GPIO_Port, PIN_MOTOR2_Pin, GPIO_PIN_RESET);
+		rampUpSingle(1, 1200);*/
 		break;
 	case 1: // backward-left, M1 on
 		if (pwmDirection[0] != 1 && pwmDuty[0] != 0) rampDownSingle(0, 0); // If changing direction, ramp down M1
@@ -236,7 +246,7 @@ void carTurn(uint8_t direction, uint32_t speed)
 		rampUpSingle(1, speed);
 		break;
 	case 3: // backward-right, M2 on
-		if (pwmDirection[1] != 1 && pwmDuty[1] != 0) rampDownSingle(1, 0); // If changing direction, ramp down M1
+		if (pwmDirection[1] != 1 && pwmDuty[1] != 0) rampDownSingle(1, 0); // If changing direction, ramp down M2
 		HAL_GPIO_WritePin(PIN_MOTOR2_GPIO_Port, PIN_MOTOR2_Pin, GPIO_PIN_RESET);
 		rampUpSingle(1, speed);
 		break;
@@ -250,3 +260,96 @@ void carStop()
 	// No changes to the pins.
 }
 
+void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
+{
+	switch (_carState)
+	{
+	case Car_Full_Stop:
+		// Fully stop the car. We should only get here if we are completely blocked.
+		carStop();
+		break;
+	case Car_Drive:
+		if (distanceToObstacle > 400)
+		{
+			// Map distance to speed linearly: (400 mm - 1000 mm or more) --> (999 - 2000)
+			uint32_t targetSpeed = 999 + 1000 * (MIN((uint32_t)distanceToObstacle, 1000) - 400) / 600;
+			carAdvance(CAR_FORWARD, targetSpeed);
+		}
+		else
+		{
+			_carState = Car_Stop_To_Turn;
+		}
+		break;
+	case Car_Stop_To_Turn:
+		carStop();
+		_carLastBearing = compassBearing;
+
+		_carState = Car_Turn;
+		if (rand() % 2 == 0)
+			carTurn(0, CAR_FULL_SPEED);
+		else
+			carTurn(2, CAR_FULL_SPEED);
+		break;
+	case Car_Turn:
+		if (distanceToObstacle > 500)
+		{
+			// If we have cleared the obstacle, then start driving forward.
+			_carState = Car_Drive;
+		}
+		else if (distanceToObstacle < 200)
+		{
+			// We've turned into an obstacle right in front, back up.
+			_carState = Car_Stop_To_Reverse;
+		}
+		else if (abs((int)_carLastBearing - (int)compassBearing) < 120)
+		{
+			// If we have not cleared the obstacle, but have turned less than 90 degrees, keep turning.
+			osDelay(500);
+		}
+		else
+		{
+			// Otherwise, we are in a corner. Stop and reverse.
+			_carState = Car_Stop_To_Reverse;
+		}
+		break;
+	case Car_Stop_To_Reverse:
+		carStop();
+		_carState = Car_Reverse;
+		break;
+	case Car_Reverse:
+		carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
+		osDelay(2000);
+		_carState = Car_Drive;
+		break;
+	}
+
+	_controlCycleTime = HAL_GetTick() - _controlLastTick;
+	_controlLastTick = HAL_GetTick();
+}
+
+void carDriveCircles()
+{
+	if (_carState != Car_Turn)
+	{
+		_carState = Car_Turn;
+		carTurn(0, 1800);
+	}
+}
+
+CarState_t carGetAutoState()
+{
+	return _carState;
+}
+
+CarSpeed_t carGetSpeed()
+{
+	CarSpeed_t speed;
+	speed.speedLeft  = pwmDirection[1] == CAR_FORWARD ? pwmDuty[1] : -pwmDuty[1];
+	speed.speedRight = pwmDirection[0] == CAR_FORWARD ? pwmDuty[0] : -pwmDuty[0];
+	return speed;
+}
+
+uint32_t carGetControlCycleTime()
+{
+	return _controlCycleTime;
+}

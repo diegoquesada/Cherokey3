@@ -17,6 +17,21 @@
 #define CAR_FORWARD 0
 #define CAR_REVERSE 1
 
+typedef enum {
+	Car_Full_Stop,
+	Car_Drive,
+	Car_Stop_To_Turn,
+	Car_Turn,
+	Car_Stop_To_Reverse,
+	Car_Reverse
+} CarState_t;
+
+typedef struct {
+	int32_t speedLeft;
+	int32_t speedRight;
+} CarSpeed_t;
+
+/// Initialize the driving state.
 void carInit();
 
 /**
@@ -49,5 +64,21 @@ void carTurn(uint8_t direction, uint32_t turnSpeed);
  */
 void carStop();
 
+/**
+ * Executes the autonomous driving state machine.
+ * The car uses the distance to obstacle and compass bearing to determine where to go.
+ */
+void carAutoDrive(uint32_t distanceToObstacle, float compassBearing);
+
+/**
+ * Simple driving mechanism that spins the car around.
+ */
+void carDriveCircles();
+
+CarState_t carGetAutoState();
+
+CarSpeed_t carGetSpeed();
+
+uint32_t carGetControlCycleTime();
 
 #endif /* DRIVING_H_ */
