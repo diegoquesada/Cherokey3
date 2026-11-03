@@ -66,7 +66,7 @@ void carStop();
 
 /**
  * Executes the autonomous driving state machine.
- * The car uses the distance to obstacle and compass bearing to determine where to go.
+ * The car uses the distance to obstacle and compass bearing to determine direction and speed.
  */
 void carAutoDrive(uint32_t distanceToObstacle, float compassBearing);
 

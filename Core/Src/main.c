@@ -743,43 +743,6 @@ void UpdateMotor(void *argument)
 		carAutoDrive(distance, compassDegree);
 
 		//carDriveCircles();
-
-#if 0
-		if (distance > 1000)
-		{
-			carState = carForward;
-			carSpeed[0] = carSpeed[1] = CAR_FULL_SPEED;
-			carAdvance(CAR_FORWARD, carSpeed[0]);
-		}
-		else if (distance > 500)
-		{
-			carState = carForward;
-			carSpeed[0] = carSpeed[1] = (CAR_HALF_SPEED * distance) / 500; // proportional to distance
-			carAdvance(CAR_FORWARD, carSpeed[0]);
-		}
-		else if (distance > 200)
-		{
-			// Turn towards the right
-			carState = carTurningRight;
-			carSpeed[0] = 2000;
-			carSpeed[1] = 1000;
-			rampSingle(CAR_LEFT_MOTOR, carSpeed[0]);
-			rampSingle(CAR_RIGHT_MOTOR, carSpeed[1]);
-		}
-		else
-		{
-			if (carState != carReverse)
-			{
-				// Stop and reverse
-				carState = carStopped;
-				carStop();
-			}
-
-			carState = carReverse;
-			carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
-			carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
-		}
-#endif
 	}
   }
   /* USER CODE END UpdateMotor */
@@ -804,7 +767,7 @@ void UpdateSerial(void *argument)
     uint8_t socketOpen = 0;
 	CarState_t currentState, lastState = Car_Full_Stop;
 	CarSpeed_t currentSpeed;
-	uint8_t stackSizePrint = 0;
+	uint8_t stackSizePrint = 0; // Simple counter to update stack size telemetry
 
 	/* Infinite loop */
 	for(;;)
@@ -836,7 +799,8 @@ void UpdateSerial(void *argument)
 		if (socketOpen)
 			socketOpen = espSendSocket((uint8_t *)tx_buffer, len) == ESP_SUCCESS;
 
-		if (stackSizePrint++ % 5 == 0)
+		// Report stack size every 10 iterations (~2.5 s)
+		if (stackSizePrint++ % 10 == 0)
 		{
 			len = snprintf(tx_buffer, sizeof(tx_buffer), "Stack: %li, %li, %li, %li\r\n",
 				osThreadGetStackSpace(ultrasonicTaskHandle),

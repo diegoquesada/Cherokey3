@@ -31,6 +31,8 @@ uint32_t pwmDuty[2]  = { 0, 0 }; // Motor duty cycle, 0:stopped, 1999:full tilt
 
 CarState_t _carState = Car_Drive;
 float _carLastBearing = 0.0f;
+uint32_t _carLastDistance = 0;
+uint32_t _carNextTick = 0;
 uint32_t _controlLastTick = 0, _controlCycleTime = 0;
 
 void carInit()
@@ -194,7 +196,7 @@ void carAdvance(uint8_t direction, uint32_t speed)
 		return;
 	if (speed > PWM_MAX_SPEED) // 2000 is valid as a maximum value
 		return;
-	if (pwmDirection[0] == direction && pwmDirection[1] == pwmDirection[1] && // Already at target
+	if (pwmDirection[0] == direction && pwmDirection[1] == direction && // Already at target
 		pwmDuty[0] == speed && pwmDuty[1] == speed)
 	{
 		return;
@@ -260,6 +262,28 @@ void carStop()
 	// No changes to the pins.
 }
 
+uint8_t carCheckStuck(uint32_t distanceToObstacle)
+{
+	if (_carNextTick != 0 && _carNextTick < HAL_GetTick() && _carLastDistance == distanceToObstacle)
+	{
+		// Distance to obstacle has not changed since last check. We are stuck.
+		return 1;
+	}
+	else
+	{
+		_carNextTick = HAL_GetTick() + 1000;
+		_carLastDistance = distanceToObstacle;
+		return 0;
+	}
+}
+
+void carChangeState(CarState_t newState)
+{
+	_carState = newState;
+	_carNextTick = 0;
+	_carLastDistance = 0;
+}
+
 void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
 {
 	switch (_carState)
@@ -269,57 +293,86 @@ void carAutoDrive(uint32_t distanceToObstacle, float compassBearing)
 		carStop();
 		break;
 	case Car_Drive:
-		if (distanceToObstacle > 400)
+		if (!carCheckStuck(distanceToObstacle))
 		{
-			// Map distance to speed linearly: (400 mm - 1000 mm or more) --> (999 - 2000)
-			uint32_t targetSpeed = 999 + 1000 * (MIN((uint32_t)distanceToObstacle, 1000) - 400) / 600;
-			carAdvance(CAR_FORWARD, targetSpeed);
+			if (distanceToObstacle > 400)
+			{
+				// Obstacle more than 4cm away.
+				// Map distance to speed linearly: (400 mm - 1000 mm or more) --> (999 - 2000)
+				uint32_t targetSpeed = 999 + 1000 * (MIN((uint32_t)distanceToObstacle, 1000) - 400) / 600;
+				carAdvance(CAR_FORWARD, targetSpeed);
+			}
+			else
+			{
+				// Stop the car and turn to avoid obstacle.
+				carChangeState(Car_Stop_To_Turn);
+			}
 		}
 		else
 		{
-			_carState = Car_Stop_To_Turn;
+			carChangeState(Car_Full_Stop);
 		}
 		break;
 	case Car_Stop_To_Turn:
+		// Stop and remember compass direction to help evaluate whether we've cleared the obstacle later.
 		carStop();
 		_carLastBearing = compassBearing;
 
-		_carState = Car_Turn;
+		// Turn in a random direction (left or right).
+		carChangeState(Car_Turn);
 		if (rand() % 2 == 0)
 			carTurn(0, CAR_FULL_SPEED);
 		else
 			carTurn(2, CAR_FULL_SPEED);
 		break;
 	case Car_Turn:
-		if (distanceToObstacle > 500)
+		if (!carCheckStuck(distanceToObstacle))
 		{
-			// If we have cleared the obstacle, then start driving forward.
-			_carState = Car_Drive;
-		}
-		else if (distanceToObstacle < 200)
-		{
-			// We've turned into an obstacle right in front, back up.
-			_carState = Car_Stop_To_Reverse;
-		}
-		else if (abs((int)_carLastBearing - (int)compassBearing) < 120)
-		{
-			// If we have not cleared the obstacle, but have turned less than 90 degrees, keep turning.
-			osDelay(500);
+			if (distanceToObstacle > 500)
+			{
+				// If we have cleared the obstacle, then start driving forward.
+				carChangeState(Car_Drive);
+			}
+			else if (distanceToObstacle < 200)
+			{
+				// We've turned into an obstacle right in front, back up.
+				carChangeState(Car_Stop_To_Reverse);
+			}
+			else if (abs((int)_carLastBearing - (int)compassBearing) < 120)
+			{
+				// If we have not cleared the obstacle, but have turned less than 120 degrees, keep turning.
+				osDelay(500);
+			}
+			else
+			{
+				// Otherwise, we are in a corner. Stop and reverse.
+				carChangeState(Car_Stop_To_Reverse);
+			}
 		}
 		else
 		{
-			// Otherwise, we are in a corner. Stop and reverse.
-			_carState = Car_Stop_To_Reverse;
+			carChangeState(Car_Full_Stop);
 		}
 		break;
 	case Car_Stop_To_Reverse:
 		carStop();
-		_carState = Car_Reverse;
+		carChangeState(Car_Reverse);
+
+		carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
 		break;
 	case Car_Reverse:
-		carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
-		osDelay(2000);
-		_carState = Car_Drive;
+		if (!carCheckStuck(distanceToObstacle))
+		{
+			if (distanceToObstacle < 400)
+			{
+				osDelay(500);
+			}
+			else
+			{
+				// We have cleared the obstacle, try to turn now.
+				_carState = Car_Stop_To_Turn;
+			}
+		}
 		break;
 	}
 
