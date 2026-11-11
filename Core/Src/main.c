@@ -38,7 +38,8 @@
 /* USER CODE BEGIN PD */
 #define DISTANCE_READY (1U << 0)
 #define BUTTON_PRESS_FLAG (1U << 1)
-#define CHEROKEY_VERSION "Cherokey3 v0.4"
+#define HCSR04_MAX_ECHO_US 23300
+#define CHEROKEY_VERSION "Cherokey3 v0.5"
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -665,7 +666,8 @@ void UpdateUltra(void *argument)
 	uint32_t sumDistance = 0;
 	uint8_t validSamples = 0;
 
-	for (int i = 0; i < 3; i++)
+	// Take 3 samples retrying up to 5 times.
+	for (int i = 0; i < 5 && validSamples < 3; i++)
 	{
 		// Ensure TRIG is low before sending pulse.
 		HAL_GPIO_WritePin(ULTRA_TRIG_GPIO_Port, ULTRA_TRIG_Pin, GPIO_PIN_RESET);
@@ -685,19 +687,24 @@ void UpdateUltra(void *argument)
 			if (icFlag) break;
 		} while ((HAL_GetTick() - startTick) < 500);
 
-		icFlag = 0;
 		HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_3);
 
-		// Calculate distance in mm.
-		if (ultraFallingTime > ultraRisingTime)
+		// Calculate distance in mm, rejecting invalid measurements.
+		if (icFlag && ultraFallingTime > ultraRisingTime)
 		{
-			uint32_t dist = (ultraFallingTime - ultraRisingTime) * 100 / 583;
-			sumDistance += dist;
-			validSamples++;
+			uint32_t pulse_width_us = ultraFallingTime - ultraRisingTime;
+			if (pulse_width_us < HCSR04_MAX_ECHO_US) // Reject measurements beyond range
+			{
+				uint32_t dist = pulse_width_us * 100 / 583;
+				sumDistance += dist;
+				validSamples++;
+			}
 		}
 
-		// Reasonable interval between samples to avoid ultrasonic echoes interfering
-		osDelay(30);
+		icFlag = 0;
+
+		// Reasonable gap between samples to avoid ultrasonic echoes interfering
+		osDelay(60);
 	}
 
 	uint32_t ultraDistance = 0;
@@ -743,43 +750,6 @@ void UpdateMotor(void *argument)
 		carAutoDrive(distance, compassDegree);
 
 		//carDriveCircles();
-
-#if 0
-		if (distance > 1000)
-		{
-			carState = carForward;
-			carSpeed[0] = carSpeed[1] = CAR_FULL_SPEED;
-			carAdvance(CAR_FORWARD, carSpeed[0]);
-		}
-		else if (distance > 500)
-		{
-			carState = carForward;
-			carSpeed[0] = carSpeed[1] = (CAR_HALF_SPEED * distance) / 500; // proportional to distance
-			carAdvance(CAR_FORWARD, carSpeed[0]);
-		}
-		else if (distance > 200)
-		{
-			// Turn towards the right
-			carState = carTurningRight;
-			carSpeed[0] = 2000;
-			carSpeed[1] = 1000;
-			rampSingle(CAR_LEFT_MOTOR, carSpeed[0]);
-			rampSingle(CAR_RIGHT_MOTOR, carSpeed[1]);
-		}
-		else
-		{
-			if (carState != carReverse)
-			{
-				// Stop and reverse
-				carState = carStopped;
-				carStop();
-			}
-
-			carState = carReverse;
-			carSpeed[0] = carSpeed[1] = -CAR_HALF_SPEED;
-			carAdvance(CAR_REVERSE, CAR_HALF_SPEED);
-		}
-#endif
 	}
   }
   /* USER CODE END UpdateMotor */
@@ -804,7 +774,7 @@ void UpdateSerial(void *argument)
     uint8_t socketOpen = 0;
 	CarState_t currentState, lastState = Car_Full_Stop;
 	CarSpeed_t currentSpeed;
-	uint8_t stackSizePrint = 0;
+	uint8_t stackSizePrint = 0; // Simple counter to update stack size telemetry
 
 	/* Infinite loop */
 	for(;;)
@@ -836,7 +806,8 @@ void UpdateSerial(void *argument)
 		if (socketOpen)
 			socketOpen = espSendSocket((uint8_t *)tx_buffer, len) == ESP_SUCCESS;
 
-		if (stackSizePrint++ % 5 == 0)
+		// Report stack size every 10 iterations (~2.5 s)
+		if (stackSizePrint++ % 10 == 0)
 		{
 			len = snprintf(tx_buffer, sizeof(tx_buffer), "Stack: %li, %li, %li, %li\r\n",
 				osThreadGetStackSpace(ultrasonicTaskHandle),

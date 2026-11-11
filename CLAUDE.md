@@ -20,7 +20,7 @@ The system is organized into four FreeRTOS tasks:
 3.  **`geoTask` (`UpdateGeo`)**:
     - Reads compass position from a BMM150 magnetometer.
 
-4.  **`serialTask` (`SerialTask`)**:
+4.  **`serialTask` (`UpdateSerial`)**:
     - Provides telemetry by sending state variables to a socket via an ESP8266 module.
 
 ### Key Modules
@@ -36,6 +36,11 @@ The system is organized into four FreeRTOS tasks:
 - **TIM4**: Motor PWM generation (Channels 1 & 2).
 - **TIM6**: HAL time base.
 - **TIM7**: Microsecond delay generator.
-- **UART2**: Serial debug output at 9600 baud.
-- **UART4**: Serial interface to ESP8266 module at 115200 baud.
-- **PA10**: GPIO signal for ESP8266 enable pin.
+- **PA1**: Ultrasonic trigger (output)
+- **PB10**: Ultrasonic echo (input)
+- **PA10**: ESP enable pin
+- **PB1 and PB15**: Motor enable pins
+- **PA11 and PA12**: Motor PWM
+- **PA2 and PA3**: UART2 TX/RX for STLink at 9600 baud
+- **PC10 and PC11**: UART4 TX/RX for ESP8266 serial interface at 115200 baud
+

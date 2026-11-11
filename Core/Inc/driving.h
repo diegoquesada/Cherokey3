@@ -13,7 +13,7 @@
 #define CAR_RIGHT_MOTOR 0
 #define CAR_LEFT_MOTOR 1
 #define CAR_HALF_SPEED 1000
-#define CAR_FULL_SPEED 2000
+#define CAR_FULL_SPEED 1999
 #define CAR_FORWARD 0
 #define CAR_REVERSE 1
 
@@ -66,7 +66,7 @@ void carStop();
 
 /**
  * Executes the autonomous driving state machine.
- * The car uses the distance to obstacle and compass bearing to determine where to go.
+ * The car uses the distance to obstacle and compass bearing to determine direction and speed.
  */
 void carAutoDrive(uint32_t distanceToObstacle, float compassBearing);
 

@@ -208,13 +208,13 @@ esp_status_t espStart()
 
 	const char connect_cmd[] = "AT+CWJAP=\"%s\",\"%s\"\r\n";
 	snprintf((char *)uartTxBuffer, sizeof(uartTxBuffer), connect_cmd, WIFI_SSID, WIFI_PASSWORD);
-	espSendSync(uartTxBuffer);*/
+	espSendSync(uartTxBuffer);
 
 	const uint8_t queryip_cmd[] = "AT+CIPSTA?\r\n";
 	espSendSync(queryip_cmd, 100, 1);
 
-	/*const uint8_t queryver_cmd[] = "AT+GMR\r\n";
-	espSendSync(queryver_cmd);*/
+	const uint8_t queryver_cmd[] = "AT+GMR\r\n";
+	espSendSync(queryver_cmd, 100, 1);*/
 
 	return ESP_SUCCESS;
 }
@@ -333,6 +333,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 esp_status_t espOpenSocket()
 {
+	// Establish TCP/IP connection to gateway computer.
+	// Currently IP is hard coded, in the future it will be identified via mDNS.
 	char espBuffer[64];
 	const char tcp_cmd[] = "AT+CIPSTART=\"TCP\",\"%s\",9576\r\n";
 	snprintf(espBuffer, sizeof(espBuffer), tcp_cmd, SOCKET_IP);
