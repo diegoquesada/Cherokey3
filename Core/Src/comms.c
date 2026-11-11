@@ -208,12 +208,12 @@ esp_status_t espStart()
 
 	const char connect_cmd[] = "AT+CWJAP=\"%s\",\"%s\"\r\n";
 	snprintf((char *)uartTxBuffer, sizeof(uartTxBuffer), connect_cmd, WIFI_SSID, WIFI_PASSWORD);
-	espSendSync(uartTxBuffer);*/
+	espSendSync(uartTxBuffer);
 
 	const uint8_t queryip_cmd[] = "AT+CIPSTA?\r\n";
 	espSendSync(queryip_cmd, 100, 1);
 
-	/*const uint8_t queryver_cmd[] = "AT+GMR\r\n";
+	const uint8_t queryver_cmd[] = "AT+GMR\r\n";
 	espSendSync(queryver_cmd, 100, 1);*/
 
 	return ESP_SUCCESS;
